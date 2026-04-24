@@ -1,0 +1,85 @@
+ADSYNC3 - CONTEXTO PRONTO PARA ENVIAR EM CHAT
+=============================================
+
+RESUMO DO PROJETO
+- SaaS para gestão financeira de operações de tráfego pago (ADS).
+- Stack: Next.js App Router + TypeScript + Supabase (Auth/Postgres/RLS) + TailwindCSS.
+- Foco: segurança multiusuário, clareza operacional, cálculo financeiro confiável.
+
+PAPEIS
+- dono: visão global da plataforma.
+- admin: vê operações próprias + equipe vinculada; gerencia gestores.
+- gestor: vê apenas os próprios dados.
+
+ROTAS PRINCIPAIS
+- /login
+- / (dashboard por papel)
+- /operacoes
+- /operacao/[id]
+- /despesas
+- /gestores
+- /gestores/[id]
+- /convites
+- /convite (aceite por token)
+- /contabilidade
+
+BANCO (TABELAS CHAVE)
+- operacoes (com repasse_percentual por operação)
+- lancamentos
+- despesas
+- profiles (role + nome)
+- admin_gestores (vínculo admin -> gestor, com status)
+- user_invitations (convites por email com token hash)
+- admin_gestor_taxas (overrides administrativos por gestor)
+
+SEGURANÇA
+- RLS aplicada nas tabelas de domínio e convites.
+- Regra essencial: nunca consultar operação só por id sem escopo de permissão.
+- Gestor só acessa ownership próprio.
+- Admin acessa equipe via vínculo em admin_gestores.
+
+CALCULO FINANCEIRO BASE
+- receita = usd * cotacao_dolar
+- custo = facebook + taxa_facebook + taxa_network + taxa_imposto
+- lucro = receita - custo
+- roi = (lucro / custo) * 100
+- repasse = lucro * repasse_percentual / 100
+- desconto de despesa = valor * percentual_desconto / 100
+
+ATUALIZAÇÕES IMPORTANTES JÁ IMPLEMENTADAS
+1) Convites completos
+- criação segura de convite (token bruto não salvo, só hash).
+- aceite com validação de email, status e permissões.
+- fluxo dono->admin e admin->gestor.
+
+2) Papéis e vínculo
+- roles: dono/admin/gestor em profiles.
+- vínculo formal admin->gestor em admin_gestores.
+
+3) Taxas administrativas por gestor
+- admin pode definir taxas/repasse em admin_gestor_taxas.
+- isso não altera dados reais da operação do gestor.
+- é visão administrativa do admin (quando aplicável).
+
+4) Repasse por operação
+- operacoes ganhou repasse_percentual.
+- backfill: admin começou com 30, demais com 20.
+
+5) Contabilidade
+- /contabilidade criada para admin.
+- exibe card do admin próprio + cards por gestor + fechamento total.
+- despesas listadas para conferência.
+- ajuste atual: contabilidade dos gestores está 100% em valores reais (sem override admin nessa tela).
+
+ESTADO ATUAL
+- sistema funcional com login, dashboard por papel, CRUD operacional, convites, gestão de equipe e contabilidade.
+- segurança no banco já estruturada com RLS e políticas por papel/vínculo.
+
+PEDIDO PARA NOVO CHAT (MODELO)
+"Com base neste contexto, quero implementar [SUA FEATURE].
+Regras:
+1) não quebrar RLS
+2) não remover filtros de user_id/vínculo
+3) manter cálculos financeiros atuais, exceto se eu pedir explicitamente
+4) manter dados reais do gestor intactos"
+

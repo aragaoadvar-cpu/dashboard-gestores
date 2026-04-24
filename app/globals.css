@@ -1,0 +1,158 @@
+@import "tailwindcss";
+
+:root {
+  --background: #06080f;
+  --foreground: #e5e7eb;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Inter", "Segoe UI", Arial, Helvetica, sans-serif;
+}
+
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: rgba(56, 189, 248, 0.35);
+  color: #f8fafc;
+}
+
+.card-white-modern {
+  background: linear-gradient(160deg, #fdfefe 0%, #f1f6ff 58%, #e9f1ff 100%);
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  box-shadow:
+    0 10px 24px rgba(15, 23, 42, 0.14),
+    0 2px 8px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  transition: transform 160ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.card-white-modern:hover {
+  transform: translateY(-1px);
+  border-color: rgba(56, 189, 248, 0.45);
+  box-shadow:
+    0 14px 30px rgba(15, 23, 42, 0.16),
+    0 4px 12px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
+}
+
+.card-white-modern .text-slate-100,
+.card-white-modern .text-slate-300,
+.card-white-modern .text-slate-400,
+.card-white-modern .text-slate-500,
+.card-white-modern .text-gray-500,
+.card-white-modern .text-gray-600,
+.card-white-modern .text-white {
+  color: #334155 !important;
+}
+
+.card-white-modern .text-black {
+  color: #0f172a !important;
+}
+
+/* Alerts and message boxes: modern premium look */
+div.border-red-300.bg-red-50,
+section.border-red-300.bg-red-50,
+p.border-red-300.bg-red-50,
+div.border-red-200.bg-red-50,
+section.border-red-200.bg-red-50,
+p.border-red-200.bg-red-50 {
+  background: linear-gradient(145deg, #fff1f2 0%, #ffe4e6 100%);
+  border-color: rgba(244, 63, 94, 0.45) !important;
+  color: #9f1239 !important;
+  box-shadow:
+    0 10px 20px rgba(225, 29, 72, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+div.border-green-300.bg-green-50,
+section.border-green-300.bg-green-50,
+p.border-green-300.bg-green-50,
+div.border-green-200.bg-green-50,
+section.border-green-200.bg-green-50,
+p.border-green-200.bg-green-50 {
+  background: linear-gradient(145deg, #ecfdf5 0%, #dcfce7 100%);
+  border-color: rgba(16, 185, 129, 0.45) !important;
+  color: #065f46 !important;
+  box-shadow:
+    0 10px 20px rgba(5, 150, 105, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+div.border-yellow-300.bg-yellow-50,
+section.border-yellow-300.bg-yellow-50,
+p.border-yellow-300.bg-yellow-50 {
+  background: linear-gradient(145deg, #fffbeb 0%, #fef3c7 100%);
+  border-color: rgba(245, 158, 11, 0.45) !important;
+  color: #92400e !important;
+  box-shadow:
+    0 10px 20px rgba(217, 119, 6, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+div.border-blue-300.bg-blue-50,
+section.border-blue-300.bg-blue-50,
+p.border-blue-300.bg-blue-50,
+div.border-blue-200.bg-blue-50,
+section.border-blue-200.bg-blue-50,
+p.border-blue-200.bg-blue-50 {
+  background: linear-gradient(145deg, #eff6ff 0%, #dbeafe 100%);
+  border-color: rgba(59, 130, 246, 0.45) !important;
+  color: #1d4ed8 !important;
+  box-shadow:
+    0 10px 20px rgba(37, 99, 235, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+/* KPI cards: number color follows left border color */
+div.border-l-red-500 p.font-extrabold,
+section.border-l-red-500 p.font-extrabold {
+  color: #ef4444 !important;
+}
+
+div.border-l-yellow-400 p.font-extrabold,
+section.border-l-yellow-400 p.font-extrabold {
+  color: #facc15 !important;
+}
+
+div.border-l-blue-500 p.font-extrabold,
+section.border-l-blue-500 p.font-extrabold {
+  color: #3b82f6 !important;
+}
+
+div.border-l-green-500 p.font-extrabold,
+section.border-l-green-500 p.font-extrabold {
+  color: #22c55e !important;
+}
+
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea,
+  button {
+    font-size: 16px;
+  }
+
+  .card-white-modern {
+    border-radius: 18px;
+  }
+}
