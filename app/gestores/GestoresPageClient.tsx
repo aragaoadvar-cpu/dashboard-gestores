@@ -502,13 +502,13 @@ export default function GestoresPageClient() {
 
     const { data: perfisData, error: perfisError } = await supabase
       .from("profiles")
-      .select("id, nome, email")
+      .select("id, nome")
       .in("id", gestorIds);
 
     if (perfisError) {
       const { data: perfisSemEmail, error: perfisSemEmailError } = await supabase
         .from("profiles")
-        .select("id, nome, email")
+        .select("id, nome")
         .in("id", gestorIds);
 
       if (perfisSemEmailError) {

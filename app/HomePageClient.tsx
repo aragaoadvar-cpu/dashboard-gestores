@@ -580,33 +580,36 @@ export default function HomePageClient() {
 
       const { data: perfisData, error: perfisError } = await supabase
         .from("profiles")
-        .select("id, nome, email, role")
+        .select("id, nome, role")
         .in("id", ownerIds);
 
       if (!perfisError) {
-        perfisLista = (perfisData as Array<{
+        perfisLista = ((perfisData as Array<{
           id: string;
           nome: string | null;
-          email: string | null;
           role: string | null;
-        }>) || [];
+        }>) || []).map((item) => ({
+          id: item.id,
+          nome: item.nome,
+          role: item.role,
+          email: null,
+        }));
       } else {
         const { data: perfisFallbackData, error: perfisFallbackError } = await supabase
           .from("profiles")
-          .select("id, nome, email, role")
+          .select("id, nome, role")
           .in("id", ownerIds);
 
         if (!perfisFallbackError) {
           perfisLista = ((perfisFallbackData as Array<{
             id: string;
             nome: string | null;
-            email: string | null;
             role: string | null;
           }>) || []).map((item) => ({
             id: item.id,
             nome: item.nome,
             role: item.role,
-            email: item.email,
+            email: null,
           }));
         } else {
           const { data: perfisMinimosData, error: perfisMinimosError } = await supabase

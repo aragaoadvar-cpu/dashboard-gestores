@@ -304,18 +304,17 @@ export async function GET() {
   if (userIds.length > 0) {
     const { data: perfisData, error: perfisError } = await supabase
       .from("profiles")
-      .select("id, nome, email")
+      .select("id, nome")
       .in("id", userIds);
 
     if (!perfisError) {
       for (const perfil of (perfisData as Array<{
         id: string;
         nome: string | null;
-        email: string | null;
       }>) || []) {
         perfisMap[perfil.id] = {
           nome: perfil.nome,
-          email: perfil.email,
+          email: null,
         };
       }
     } else {

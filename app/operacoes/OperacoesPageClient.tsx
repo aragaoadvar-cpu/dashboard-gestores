@@ -304,15 +304,17 @@ export default function OperacoesPageClient() {
 
     const { data: perfisComEmail, error: perfisComEmailError } = await supabase
       .from("profiles")
-      .select("id, nome, email")
+      .select("id, nome")
       .in("id", ownerIds);
 
     if (!perfisComEmailError) {
-      perfisLista = perfisComEmail as Array<{
-        id: string;
-        nome: string | null;
-        email: string | null;
-      }>;
+      perfisLista = ((perfisComEmail as Array<{ id: string; nome: string | null }>) || []).map(
+        (item) => ({
+          id: item.id,
+          nome: item.nome,
+          email: null,
+        })
+      );
     } else {
       const { data: perfisSemEmail, error: perfisSemEmailError } = await supabase
         .from("profiles")
