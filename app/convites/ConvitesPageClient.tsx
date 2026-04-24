@@ -159,11 +159,13 @@ export default function ConvitesPageClient() {
     for (const auxiliar of auxiliaresAtivos) {
       if (usuariosJaRepresentados.has(auxiliar.auxiliar_user_id)) continue;
 
-      const email = auxiliar.auxiliar_email?.trim() || `ID: ${auxiliar.auxiliar_user_id}`;
+      const nomeAuxiliar = auxiliar.auxiliar_nome?.trim() || "";
+      const emailAuxiliar = auxiliar.auxiliar_email?.trim() || "";
+      const tituloAuxiliar = nomeAuxiliar || emailAuxiliar || `ID: ${auxiliar.auxiliar_user_id}`;
 
       convitesBase.push({
         id: `active-aux-${auxiliar.auxiliar_user_id}`,
-        invited_email: email,
+        invited_email: tituloAuxiliar,
         invite_type: "auxiliar",
         status: "active_linked",
         created_at: auxiliar.vinculado_em,
@@ -653,7 +655,7 @@ export default function ConvitesPageClient() {
                       (roleUsuario === "admin" || roleUsuario === "gestor") &&
                       convite.invite_type === "auxiliar" &&
                       !!userVinculadoId &&
-                      (convite.status === "accepted" || convite.status === "active_linked");
+                      convite.status === "active_linked";
 
                     const podeInativar =
                       podeInativarGestor || podeInativarAuxiliar;

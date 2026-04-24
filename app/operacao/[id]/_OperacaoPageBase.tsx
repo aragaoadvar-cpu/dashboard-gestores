@@ -225,24 +225,24 @@ export default function OperacaoPage() {
       if (roleAtual === "gestor") {
         operacaoQuery = operacaoQuery.eq("user_id", user.id);
       } else if (roleAtual === "auxiliar") {
-        const { data: ownerIdAuxiliarData, error: ownerIdAuxiliarError } = await supabase.rpc(
-          "get_auxiliar_owner_id",
-          { check_auxiliar_id: user.id }
-        );
+        const { data: permissaoData, error: permissaoError } = await supabase
+          .from("operacao_auxiliares")
+          .select("id")
+          .eq("auxiliar_user_id", user.id)
+          .eq("operacao_id", operacaoId)
+          .maybeSingle();
 
-        if (ownerIdAuxiliarError) {
-          setErroTela(`Erro ao validar vínculo do auxiliar: ${ownerIdAuxiliarError.message}`);
+        if (permissaoError) {
+          setErroTela(`Erro ao validar permissão do auxiliar: ${permissaoError.message}`);
           setCarregando(false);
           return;
         }
 
-        if (!ownerIdAuxiliarData) {
-          setErroTela("Auxiliar sem vínculo ativo com admin/gestor.");
+        if (!permissaoData) {
+          setErroTela("Você não tem permissão para acessar esta operação.");
           setCarregando(false);
           return;
         }
-
-        operacaoQuery = operacaoQuery.eq("user_id", ownerIdAuxiliarData);
       }
 
       const { data: operacaoData, error: operacaoError } = await operacaoQuery.maybeSingle();

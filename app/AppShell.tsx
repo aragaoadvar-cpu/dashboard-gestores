@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 type RoleUsuario = "dono" | "admin" | "gestor" | "auxiliar" | null;
 
@@ -12,7 +14,10 @@ type Props = {
 
 export default function AppShell({ roleUsuario, children }: Props) {
   const pathname = usePathname();
+  const router = useRouter();
+  const supabase = createClient();
   const hideSidebar = pathname === "/login";
+  const [saindo, setSaindo] = useState(false);
 
   const podeVerGestores = roleUsuario === "admin" || roleUsuario === "dono";
   const podeVerConvites =
@@ -33,6 +38,17 @@ export default function AppShell({ roleUsuario, children }: Props) {
       return "rounded-2xl border border-blue-400/75 bg-blue-500/15 px-4 py-3 text-base font-bold text-blue-200 shadow-[0_0_0_2px_rgba(59,130,246,0.8)]";
     }
     return "rounded-2xl border border-transparent px-4 py-3 text-base font-semibold text-slate-200 transition hover:border-blue-400/35 hover:bg-blue-500/10 hover:text-blue-200";
+  }
+
+  async function sairDaConta() {
+    if (saindo) return;
+    setSaindo(true);
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      setSaindo(false);
+      return;
+    }
+    router.push("/login");
   }
 
   return (
@@ -72,6 +88,14 @@ export default function AppShell({ roleUsuario, children }: Props) {
           <Link href="/configuracao" className={`${getNavClass("/configuracao")} shrink-0 !px-3 !py-2 !text-sm`}>
             Configurações
           </Link>
+          <button
+            type="button"
+            onClick={sairDaConta}
+            disabled={saindo}
+            className="shrink-0 inline-flex min-h-[44px] items-center gap-2 rounded-2xl border border-red-300/40 bg-red-500/10 px-3 py-2 text-sm font-semibold text-red-100 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saindo ? "Saindo..." : "Sair"}
+          </button>
         </nav>
       </header>
 
@@ -94,6 +118,14 @@ export default function AppShell({ roleUsuario, children }: Props) {
             <Link href="/convites" className={getNavClass("/convites")}>Convites</Link>
           )}
           <Link href="/configuracao" className={getNavClass("/configuracao")}>Configurações</Link>
+          <button
+            type="button"
+            onClick={sairDaConta}
+            disabled={saindo}
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-2xl border border-red-300/40 bg-red-500/10 px-4 py-3 text-base font-semibold text-red-100 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saindo ? "Saindo..." : "Sair"}
+          </button>
         </nav>
       </aside>
 

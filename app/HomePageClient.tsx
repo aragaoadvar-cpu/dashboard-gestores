@@ -2,7 +2,6 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { createClient } from "../lib/supabase/client";
 import UserAvatar from "./components/UserAvatar";
 
@@ -224,7 +223,6 @@ function getRepassePercentualComOverride(
 }
 
 export default function HomePageClient() {
-  const router = useRouter();
   const supabase = createClient();
 
   const hoje = new Date();
@@ -248,7 +246,6 @@ export default function HomePageClient() {
   const [taxasAdminPorGestorId, setTaxasAdminPorGestorId] = useState<
     Record<string, AdminGestorTaxas>
   >({});
-  const [saindo, setSaindo] = useState(false);
   const [kpisAbertos, setKpisAbertos] = useState(false);
   const [periodoAberto, setPeriodoAberto] = useState(false);
   const [modoTemporal, setModoTemporal] = useState<ModoTemporalDashboard>("periodo");
@@ -337,6 +334,10 @@ export default function HomePageClient() {
     return lancamentos.filter((item) => item.dia === contextoTemporal.diaAlvo);
   }, [lancamentos, modoTemporal, contextoTemporal.diaAlvo]);
 
+  const despesasAplicadasTemporal = useMemo(() => {
+    return modoTemporal === "periodo" ? despesas : [];
+  }, [modoTemporal, despesas]);
+
   async function carregarDados() {
     setCarregando(true);
     setErro("");
@@ -394,6 +395,7 @@ export default function HomePageClient() {
     let gestoresDoAdmin: string[] = [];
     let adminsDoSistema: string[] = [];
     let ownerDoAuxiliar: string | null = null;
+    let operacaoIdsPermitidasAuxiliar: number[] = [];
     if (roleAtual === "admin") {
       const { data: gestoresData, error: gestoresError } = await supabase
         .from("admin_gestores")
@@ -468,6 +470,27 @@ export default function HomePageClient() {
       }
 
       ownerDoAuxiliar = ownerIdAuxiliarData;
+
+      const { data: permissoesAuxiliarData, error: permissoesAuxiliarError } = await supabase
+        .from("operacao_auxiliares")
+        .select("operacao_id")
+        .eq("auxiliar_user_id", user.id);
+
+      if (permissoesAuxiliarError) {
+        setErro(
+          `Erro ao carregar permissões de operações do auxiliar: ${JSON.stringify(
+            permissoesAuxiliarError
+          )}`
+        );
+        setCarregando(false);
+        return;
+      }
+
+      operacaoIdsPermitidasAuxiliar =
+        ((permissoesAuxiliarData as Array<{ operacao_id: number | null }>) || [])
+          .map((item) => Number(item.operacao_id))
+          .filter((id) => Number.isInteger(id) && id > 0);
+
       setTaxasAdminPorGestorId({});
     } else {
       setTaxasAdminPorGestorId({});
@@ -476,24 +499,46 @@ export default function HomePageClient() {
     setAdminIdsSistema(adminsDoSistema);
     setOwnerIdAuxiliar(ownerDoAuxiliar);
 
-    let operacoesQuery = supabase
-      .from("operacoes")
-      .select(
-        "id, nome, mes, ano, user_id, cotacao_dolar, taxa_facebook, taxa_network, taxa_imposto, repasse_percentual"
-      )
-      .eq("mes", mesSelecionado)
-      .eq("ano", anoSelecionado)
-      .order("id", { ascending: true });
+    let operacoesData: Operacao[] | null = null;
+    let operacoesError: unknown = null;
 
-    if (roleAtual === "gestor") {
-      operacoesQuery = operacoesQuery.eq("user_id", user.id);
-    } else if (roleAtual === "admin") {
-      operacoesQuery = operacoesQuery.in("user_id", [user.id, ...gestoresDoAdmin]);
-    } else if (roleAtual === "auxiliar" && ownerDoAuxiliar) {
-      operacoesQuery = operacoesQuery.eq("user_id", ownerDoAuxiliar);
+    if (roleAtual === "auxiliar") {
+      if (operacaoIdsPermitidasAuxiliar.length === 0) {
+        operacoesData = [];
+      } else {
+        const resultado = await supabase
+          .from("operacoes")
+          .select(
+            "id, nome, mes, ano, user_id, cotacao_dolar, taxa_facebook, taxa_network, taxa_imposto, repasse_percentual"
+          )
+          .in("id", operacaoIdsPermitidasAuxiliar)
+          .eq("mes", mesSelecionado)
+          .eq("ano", anoSelecionado)
+          .order("id", { ascending: true });
+
+        operacoesData = (resultado.data as Operacao[] | null) ?? null;
+        operacoesError = resultado.error;
+      }
+    } else {
+      let operacoesQuery = supabase
+        .from("operacoes")
+        .select(
+          "id, nome, mes, ano, user_id, cotacao_dolar, taxa_facebook, taxa_network, taxa_imposto, repasse_percentual"
+        )
+        .eq("mes", mesSelecionado)
+        .eq("ano", anoSelecionado)
+        .order("id", { ascending: true });
+
+      if (roleAtual === "gestor") {
+        operacoesQuery = operacoesQuery.eq("user_id", user.id);
+      } else if (roleAtual === "admin") {
+        operacoesQuery = operacoesQuery.in("user_id", [user.id, ...gestoresDoAdmin]);
+      }
+
+      const resultado = await operacoesQuery;
+      operacoesData = (resultado.data as Operacao[] | null) ?? null;
+      operacoesError = resultado.error;
     }
-
-    const { data: operacoesData, error: operacoesError } = await operacoesQuery;
 
     if (operacoesError) {
       setErro(`Erro ao carregar operações: ${JSON.stringify(operacoesError)}`);
@@ -666,22 +711,6 @@ export default function HomePageClient() {
     carregarDados();
   }, [mesSelecionado, anoSelecionado]);
 
-  async function sairDaConta() {
-    setErro("");
-    setMensagem("");
-    setSaindo(true);
-
-    const { error } = await supabase.auth.signOut();
-
-    if (error) {
-      setErro(`Erro ao encerrar sessão: ${error.message}`);
-      setSaindo(false);
-      return;
-    }
-
-    router.push("/login");
-  }
-
   const resumoPorOperacaoReal = useMemo(() => {
     const mapa = new Map<number, ResumoOperacao>();
 
@@ -777,7 +806,9 @@ export default function HomePageClient() {
       roleUsuario === "auxiliar" ? ownerIdAuxiliar ?? userIdAtual : userIdAtual;
 
     const operacoesProprias = operacoes.filter((operacao) => operacao.user_id === userIdBaseEscopo);
-    const despesasProprias = despesas.filter((despesa) => despesa.user_id === userIdBaseEscopo);
+    const despesasProprias = despesasAplicadasTemporal.filter(
+      (despesa) => despesa.user_id === userIdBaseEscopo
+    );
 
     const operacoesEquipe =
       roleUsuario === "admin"
@@ -788,19 +819,21 @@ export default function HomePageClient() {
 
     const despesasEquipe =
       roleUsuario === "admin"
-        ? despesas.filter((despesa) => despesa.user_id && gestoresSet.has(despesa.user_id))
+        ? despesasAplicadasTemporal.filter(
+            (despesa) => despesa.user_id && gestoresSet.has(despesa.user_id)
+          )
         : roleUsuario === "dono"
-        ? despesas.filter((despesa) => despesa.user_id !== userIdAtual)
+        ? despesasAplicadasTemporal.filter((despesa) => despesa.user_id !== userIdAtual)
         : [];
 
     return {
       proprio: calcularTotais(operacoesProprias, despesasProprias),
       equipe: calcularTotais(operacoesEquipe, despesasEquipe),
-      consolidado: calcularTotais(operacoes, despesas),
+      consolidado: calcularTotais(operacoes, despesasAplicadasTemporal),
     };
   }, [
     operacoes,
-    despesas,
+    despesasAplicadasTemporal,
     resumoPorOperacaoReal,
     resumoPorOperacaoAdmin,
     roleUsuario,
@@ -867,7 +900,7 @@ export default function HomePageClient() {
       porUsuario.set(operacao.user_id, atual);
     }
 
-    for (const despesa of despesas) {
+    for (const despesa of despesasAplicadasTemporal) {
       if (!despesa.user_id || !alvoSet.has(despesa.user_id)) continue;
       const atual = porUsuario.get(despesa.user_id) || { ...resumoVazio };
       const valor = Number(despesa.valor ?? 0);
@@ -906,7 +939,7 @@ export default function HomePageClient() {
     gestoresVinculadosIds,
     adminIdsSistema,
     operacoes,
-    despesas,
+    despesasAplicadasTemporal,
     resumoPorOperacaoReal,
     perfisUsuarioPorId,
   ]);
@@ -983,11 +1016,16 @@ export default function HomePageClient() {
       esconderRepasseLiquido?: boolean;
       esconderLucroLiquido?: boolean;
       esconderRepasseTotal?: boolean;
+      aplicarDespesasNoRepasseTotal?: boolean;
     }
   ) {
     const esconderRepasseLiquido = options?.esconderRepasseLiquido ?? false;
     const esconderLucroLiquido = options?.esconderLucroLiquido ?? false;
     const esconderRepasseTotal = options?.esconderRepasseTotal ?? false;
+    const aplicarDespesasNoRepasseTotal = options?.aplicarDespesasNoRepasseTotal ?? false;
+    const repasseTotalExibido = aplicarDespesasNoRepasseTotal
+      ? resumo.repasseTotal - resumo.descontoDespesas
+      : resumo.repasseTotal;
     const totalCardsVisiveis =
       3 +
       (esconderLucroLiquido ? 0 : 1) +
@@ -1003,35 +1041,35 @@ export default function HomePageClient() {
         : "xl:grid-cols-6";
 
     return (
-      <section className="mt-6">
-        <p className="mb-2 text-sm font-semibold uppercase tracking-[0.12em] text-slate-400">
+      <section className="mt-4 md:mt-6">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 md:text-sm md:tracking-[0.12em]">
           {titulo}
         </p>
-        <div className={`grid grid-cols-2 gap-3 lg:grid-cols-3 ${classeGridXL}`}>
-          <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-red-500 bg-[#0f172a]/85 p-4 shadow-sm">
+        <div className={`grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3 ${classeGridXL}`}>
+          <div className="min-w-0 overflow-hidden rounded-[20px] border border-white/10 border-l-4 border-l-red-500 bg-[#0f172a]/85 p-3 shadow-sm md:p-5">
             <p className="text-xs font-semibold text-slate-400 md:text-sm">Custo Total</p>
-            <p className="mt-2 break-words text-lg font-extrabold leading-tight text-red-600 sm:text-xl md:text-2xl">
+            <p className="mt-2 whitespace-nowrap tracking-tight text-lg font-extrabold leading-none text-red-600 sm:text-xl md:text-2xl lg:text-3xl">
               R$ {formatarNumero(resumo.custoTotal)}
             </p>
           </div>
-          <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-yellow-400 bg-[#0f172a]/85 p-4 shadow-sm">
+          <div className="min-w-0 overflow-hidden rounded-[20px] border border-white/10 border-l-4 border-l-yellow-400 bg-[#0f172a]/85 p-3 shadow-sm md:p-5">
             <p className="text-xs font-semibold text-slate-400 md:text-sm">Receita Total</p>
-            <p className="mt-2 break-words text-lg font-extrabold leading-tight text-blue-600 sm:text-xl md:text-2xl">
+            <p className="mt-2 whitespace-nowrap tracking-tight text-lg font-extrabold leading-none text-blue-600 sm:text-xl md:text-2xl lg:text-3xl">
               R$ {formatarNumero(resumo.receitaTotal)}
             </p>
           </div>
           {!esconderLucroLiquido && (
-            <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-blue-500 bg-[#0f172a]/85 p-4 shadow-sm">
+            <div className="min-w-0 overflow-hidden rounded-[20px] border border-white/10 border-l-4 border-l-blue-500 bg-[#0f172a]/85 p-3 shadow-sm md:p-5">
               <p className="text-xs font-semibold text-slate-400 md:text-sm">Lucro Líquido</p>
-              <p className="mt-2 break-words text-lg font-extrabold leading-tight text-green-600 sm:text-xl md:text-2xl">
+              <p className="mt-2 whitespace-nowrap tracking-tight text-lg font-extrabold leading-none text-green-600 sm:text-xl md:text-2xl lg:text-3xl">
                 R$ {formatarNumero(resumo.lucroLiquido)}
               </p>
             </div>
           )}
-          <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-4 shadow-sm">
+          <div className="min-w-0 overflow-hidden rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-3 shadow-sm md:p-5">
             <p className="text-xs font-semibold text-slate-400 md:text-sm">ROI do Mês</p>
             <p
-              className={`mt-2 break-words text-lg font-extrabold leading-tight sm:text-xl md:text-2xl ${getCorPorValor(
+              className={`mt-2 whitespace-nowrap tracking-tight text-lg font-extrabold leading-none sm:text-xl md:text-2xl lg:text-3xl ${getCorPorValor(
                 resumo.roiMes
               )}`}
             >
@@ -1039,22 +1077,22 @@ export default function HomePageClient() {
             </p>
           </div>
           {!esconderRepasseTotal && (
-            <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-4 shadow-sm">
+            <div className="min-w-0 overflow-hidden rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-3 shadow-sm md:p-5">
               <p className="text-xs font-semibold text-slate-400 md:text-sm">Repasse Total</p>
               <p
-                className={`mt-2 break-words text-lg font-extrabold leading-tight sm:text-xl md:text-2xl ${getCorPorValor(
-                  resumo.repasseTotal
+                className={`mt-2 whitespace-nowrap tracking-tight text-lg font-extrabold leading-none sm:text-xl md:text-2xl lg:text-3xl ${getCorPorValor(
+                  repasseTotalExibido
                 )}`}
               >
-                R$ {formatarNumero(resumo.repasseTotal)}
+                R$ {formatarNumero(repasseTotalExibido)}
               </p>
             </div>
           )}
           {!esconderRepasseLiquido && (
-            <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-4 shadow-sm">
+            <div className="min-w-0 overflow-hidden rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-3 shadow-sm md:p-5">
               <p className="text-xs font-semibold text-slate-400 md:text-sm">Repasse Líquido</p>
               <p
-                className={`mt-2 break-words text-lg font-extrabold leading-tight sm:text-xl md:text-2xl ${getCorPorValor(
+                className={`mt-2 whitespace-nowrap tracking-tight text-lg font-extrabold leading-none sm:text-xl md:text-2xl lg:text-3xl ${getCorPorValor(
                   resumo.repasseLiquidoFinal
                 )}`}
               >
@@ -1071,10 +1109,10 @@ export default function HomePageClient() {
   }
 
   return (
-    <main className="min-h-screen bg-transparent p-4 md:p-6 xl:p-8">
-      <section className="mx-auto max-w-7xl">
-        <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
+    <main className="min-h-screen overflow-x-hidden bg-transparent px-4 py-4 md:px-6 md:py-6 xl:px-8">
+      <section className="mx-auto w-full max-w-7xl">
+        <header className="relative flex flex-col items-center gap-3">
+          <div className="flex w-full justify-center">
             <Image
               src="/uptime-v2.png"
               alt="Uptime"
@@ -1083,128 +1121,105 @@ export default function HomePageClient() {
               className="h-auto w-[190px] md:w-[240px] xl:w-[300px]"
               priority
             />
-            <p className="mt-2 text-sm text-slate-400 md:text-lg">
-              Visão geral consolidada do mês
-            </p>
           </div>
+          <p className="text-center text-sm text-slate-400 md:text-lg">
+            Visão geral consolidada do mês
+          </p>
 
-          <div className="flex items-center gap-2 self-start rounded-xl border border-white/15 bg-[#0b1222]/90 px-3 py-2">
-            <span className="max-w-[220px] truncate text-xs font-medium text-slate-300 md:max-w-[280px] md:text-sm">
-              {emailUsuario || "Usuário autenticado"}
-            </span>
-            <button
-              type="button"
-              onClick={sairDaConta}
-              disabled={saindo}
-              className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60 md:text-sm"
-            >
-              {saindo ? "Saindo..." : "Sair"}
-            </button>
-          </div>
         </header>
 
-        <section className="mt-6 rounded-[24px] border border-white/10 bg-[#0f172a]/85 p-4 shadow-[0_20px_45px_rgba(2,6,23,0.55)] md:p-6">
+        <section className="mt-4 rounded-[24px] border border-white/10 bg-[#0f172a]/85 p-3 shadow-[0_20px_45px_rgba(2,6,23,0.55)] md:mt-6 md:p-6">
           <div
             className={
               roleUsuario === "admin" || roleUsuario === "gestor" || roleUsuario === "auxiliar"
-                ? "grid grid-cols-1 gap-4 md:grid-cols-[auto_auto_auto] md:items-center md:justify-between"
-                : "flex flex-col gap-4 md:flex-row md:items-center md:justify-between"
+                ? "grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto] md:items-center"
+                : "flex flex-col gap-3"
             }
           >
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setPeriodoAberto((prev) => !prev)}
-                className="rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-3 text-sm font-semibold text-slate-100 md:px-5 md:text-base"
-              >
-                Selecionar período — {MESES.find((m) => m.valor === mesSelecionado)?.label}/
-                {anoSelecionado}
-              </button>
+            <div className="flex w-full justify-center">
+              <div className="flex w-full flex-col items-center gap-2 md:w-auto md:flex-row md:flex-nowrap md:items-center md:gap-3">
+              <div className="relative w-full md:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setPeriodoAberto((prev) => !prev)}
+                  className="min-h-[40px] w-full whitespace-nowrap rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-2 text-center text-sm font-semibold text-slate-100 md:w-auto md:px-5 md:py-3 md:text-base"
+                >
+                  <span>Período: {MESES.find((m) => m.valor === mesSelecionado)?.label}/{anoSelecionado}</span>
+                </button>
 
-              {periodoAberto && (
-                <div className="absolute left-0 top-full z-20 mt-2 max-h-72 w-56 overflow-y-auto rounded-2xl border border-white/15 bg-[#0b1222] p-2 shadow-xl">
-                  {periodosDisponiveis.map((periodo) => (
-                    <button
-                      key={`${periodo.mes}-${periodo.ano}`}
-                      type="button"
-                      onClick={() => {
-                        setMesSelecionado(periodo.mes);
-                        setAnoSelecionado(periodo.ano);
-                        setPeriodoAberto(false);
-                      }}
-                      className={`block w-full rounded-xl px-3 py-2 text-left text-sm ${
-                        periodo.mes === mesSelecionado && periodo.ano === anoSelecionado
-                          ? "bg-cyan-500 text-white"
-                          : "text-slate-100 hover:bg-white/10"
-                      }`}
-                    >
-                      {periodo.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+                {periodoAberto && (
+                  <div className="absolute left-0 top-full z-20 mt-2 max-h-72 w-full overflow-y-auto rounded-2xl border border-white/15 bg-[#0b1222] p-2 shadow-xl sm:w-56">
+                    {periodosDisponiveis.map((periodo) => (
+                      <button
+                        key={`${periodo.mes}-${periodo.ano}`}
+                        type="button"
+                        onClick={() => {
+                          setMesSelecionado(periodo.mes);
+                          setAnoSelecionado(periodo.ano);
+                          setPeriodoAberto(false);
+                        }}
+                        className={`block w-full rounded-xl px-3 py-2 text-left text-sm ${
+                          periodo.mes === mesSelecionado && periodo.ano === anoSelecionado
+                            ? "bg-cyan-500 text-white"
+                            : "text-slate-100 hover:bg-white/10"
+                        }`}
+                      >
+                        {periodo.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex w-full flex-col items-center gap-1.5 md:w-auto md:flex-row md:flex-nowrap md:items-center md:gap-3">
+                <button
+                  type="button"
+                  onClick={() => setModoTemporal("periodo")}
+                  className={`min-h-[40px] w-full whitespace-nowrap rounded-2xl border px-4 py-2 text-center text-sm font-semibold transition md:w-auto ${
+                    modoTemporal === "periodo"
+                      ? "border-cyan-300 bg-cyan-500/20 text-cyan-100"
+                      : "border-white/20 bg-[#0b1222] text-slate-200 hover:bg-white/10"
+                  }`}
+                >
+                  Período inteiro
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModoTemporal("ontem")}
+                  className={`min-h-[40px] w-full whitespace-nowrap rounded-2xl border px-4 py-2 text-center text-sm font-semibold transition md:w-auto ${
+                    modoTemporal === "ontem"
+                      ? "border-cyan-300 bg-cyan-500/20 text-cyan-100"
+                      : "border-white/20 bg-[#0b1222] text-slate-200 hover:bg-white/10"
+                  }`}
+                >
+                  Ontem
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModoTemporal("hoje")}
+                  className={`min-h-[40px] w-full whitespace-nowrap rounded-2xl border px-4 py-2 text-center text-sm font-semibold transition md:w-auto ${
+                    modoTemporal === "hoje"
+                      ? "border-cyan-300 bg-cyan-500/20 text-cyan-100"
+                      : "border-white/20 bg-[#0b1222] text-slate-200 hover:bg-white/10"
+                  }`}
+                >
+                  Hoje até o momento
+                </button>
+              </div>
+            </div>
             </div>
 
             {(roleUsuario === "gestor" || roleUsuario === "auxiliar") && (
-              <div className="md:justify-self-center">
+              <div className="w-full md:w-auto md:justify-self-end">
                 <button
                   type="button"
                   onClick={() => setKpisAbertos((prev) => !prev)}
-                  className="rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-3 text-sm font-semibold text-slate-100 transition hover:bg-white/10 md:px-5 md:text-base"
+                  className="min-h-[40px] w-full rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-2 text-center text-sm font-semibold text-slate-100 transition hover:bg-white/10 md:w-auto md:px-5 md:py-3 md:text-base"
                 >
                   📊 {kpisAbertos ? "Ocultar resumo de operação" : "Ver resumo de operação"}
                 </button>
               </div>
             )}
-
-            <div
-                className={`rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300 md:text-base ${
-                roleUsuario === "admin" || roleUsuario === "gestor" || roleUsuario === "auxiliar"
-                  ? "md:justify-self-end"
-                  : ""
-              }`}
-            >
-              Período selecionado:{" "}
-              <span className="font-semibold text-slate-100">
-                {nomeMesSelecionado} {anoSelecionado}
-              </span>
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setModoTemporal("periodo")}
-              className={`rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
-                modoTemporal === "periodo"
-                  ? "border-cyan-300 bg-cyan-500/20 text-cyan-100"
-                  : "border-white/20 bg-[#0b1222] text-slate-200 hover:bg-white/10"
-              }`}
-            >
-              Período inteiro
-            </button>
-            <button
-              type="button"
-              onClick={() => setModoTemporal("ontem")}
-              className={`rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
-                modoTemporal === "ontem"
-                  ? "border-cyan-300 bg-cyan-500/20 text-cyan-100"
-                  : "border-white/20 bg-[#0b1222] text-slate-200 hover:bg-white/10"
-              }`}
-            >
-              Ontem
-            </button>
-            <button
-              type="button"
-              onClick={() => setModoTemporal("hoje")}
-              className={`rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
-                modoTemporal === "hoje"
-                  ? "border-cyan-300 bg-cyan-500/20 text-cyan-100"
-                  : "border-white/20 bg-[#0b1222] text-slate-200 hover:bg-white/10"
-              }`}
-            >
-              Hoje até o momento
-            </button>
           </div>
 
           {modoTemporal !== "periodo" && contextoTemporal.foraDoMesAtual && (
@@ -1238,6 +1253,7 @@ export default function HomePageClient() {
           <>
             {renderKpiGrid(resumoProprio, "OPERAÇÕES PRÓPRIAS", {
               esconderRepasseLiquido: true,
+              aplicarDespesasNoRepasseTotal: true,
             })}
           </>
         )}
@@ -1302,17 +1318,17 @@ export default function HomePageClient() {
                         <h3 className="text-base font-bold text-black md:text-lg">
                           {operacao.nome}
                         </h3>
-                        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+                        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
                           <div className="rounded-xl bg-gray-50 p-3">
                             <p className="text-xs text-gray-500">Receita</p>
-                            <p className="text-sm font-extrabold text-blue-600">
+                            <p className="whitespace-nowrap text-sm font-extrabold text-blue-600">
                               R$ {formatarNumero(resumo.receita)}
                             </p>
                           </div>
 
                           <div className="rounded-xl bg-gray-50 p-3">
                             <p className="text-xs text-gray-500">Custo</p>
-                            <p className="text-sm font-extrabold text-red-600">
+                            <p className="whitespace-nowrap text-sm font-extrabold text-red-600">
                               R$ {formatarNumero(resumo.custo)}
                             </p>
                           </div>
@@ -1320,7 +1336,7 @@ export default function HomePageClient() {
                           {roleUsuario !== "auxiliar" && (
                             <div className="rounded-xl bg-gray-50 p-3">
                               <p className="text-xs text-gray-500">Lucro</p>
-                              <p className={`text-sm font-extrabold ${getCorPorValor(resumo.lucro)}`}>
+                              <p className={`whitespace-nowrap text-sm font-extrabold ${getCorPorValor(resumo.lucro)}`}>
                                 R$ {formatarNumero(resumo.lucro)}
                               </p>
                             </div>
@@ -1328,7 +1344,7 @@ export default function HomePageClient() {
 
                           <div className="rounded-xl bg-gray-50 p-3">
                             <p className="text-xs text-gray-500">ROI</p>
-                            <p className={`text-sm font-extrabold ${getCorPorValor(resumo.roi)}`}>
+                            <p className={`whitespace-nowrap text-sm font-extrabold ${getCorPorValor(resumo.roi)}`}>
                               {formatarNumero(resumo.roi)}%
                             </p>
                           </div>
@@ -1336,7 +1352,7 @@ export default function HomePageClient() {
                           {roleUsuario !== "auxiliar" && (
                             <div className="rounded-xl bg-gray-50 p-3">
                               <p className="text-xs text-gray-500">Repasse</p>
-                              <p className={`text-sm font-extrabold ${getCorPorValor(resumo.repasse)}`}>
+                              <p className={`whitespace-nowrap text-sm font-extrabold ${getCorPorValor(resumo.repasse)}`}>
                                 R$ {formatarNumero(resumo.repasse)}
                               </p>
                             </div>
@@ -1346,7 +1362,7 @@ export default function HomePageClient() {
                             <div className="rounded-xl bg-gray-50 p-3">
                               <p className="text-xs text-gray-500">Repasse líquido</p>
                               <p
-                                className={`text-sm font-extrabold ${getCorPorValor(
+                                className={`whitespace-nowrap text-sm font-extrabold ${getCorPorValor(
                                   resumo.repasseLiquido
                                 )}`}
                               >
@@ -1365,15 +1381,15 @@ export default function HomePageClient() {
         )}
 
         {(roleUsuario === "admin" || roleUsuario === "dono") && alertasPerformanceHome.length > 0 && (
-          <section className="mt-6 rounded-[24px] border border-white/10 bg-[#0f172a]/70 p-4 shadow-[0_20px_45px_rgba(2,6,23,0.45)] md:p-5">
+          <section className="mt-4 rounded-[24px] border border-white/10 bg-[#0f172a]/70 p-3 shadow-[0_20px_45px_rgba(2,6,23,0.45)] md:mt-6 md:p-5">
             <p className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
               Alertas rápidos
             </p>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2 md:gap-2">
             {alertasPerformanceHome.map((alerta) => (
               <div
                 key={alerta.id}
-                className={`rounded-xl border px-4 py-3 text-sm font-semibold ${
+                className={`rounded-xl border px-3 py-2 text-xs font-semibold md:px-4 md:py-3 md:text-sm ${
                   alerta.tipo === "negativo"
                     ? "border-red-300/50 bg-red-500/10 text-red-200"
                     : alerta.tipo === "atencao"
@@ -1394,17 +1410,17 @@ export default function HomePageClient() {
         )}
 
         {(roleUsuario === "admin" || roleUsuario === "dono") && (
-          <section className="mt-6 rounded-[24px] card-white-modern p-4 shadow-sm md:p-6">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-lg font-extrabold text-black md:text-2xl">
+          <section className="mt-4 rounded-[24px] card-white-modern p-3 shadow-sm md:mt-6 md:p-6">
+            <div className="flex items-center justify-between gap-2 md:gap-3">
+              <h2 className="text-base font-extrabold text-black md:text-2xl">
                 {roleUsuario === "admin" ? "RANKING GERAL" : "Ranking de admins"}
               </h2>
-              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-400">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-400 md:text-xs md:tracking-[0.12em]">
                 Ordenado por repasse bruto
               </span>
             </div>
 
-            <div className="mt-4 space-y-2">
+            <div className="mt-3 space-y-1.5 md:mt-4 md:space-y-2">
               {ranking.length === 0 && (
                 <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-500">
                   Nenhum dado disponível para o ranking neste período.
@@ -1428,7 +1444,7 @@ export default function HomePageClient() {
               {ranking.map((item, index) => (
                 <div
                   key={item.userId}
-                  className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 md:grid md:grid-cols-3 md:items-center md:gap-4"
+                  className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 md:grid md:grid-cols-3 md:items-center md:gap-4 md:px-4 md:py-3"
                 >
                   <div className="flex items-center gap-3 md:min-w-0">
                     {index === 0 ? (
@@ -1465,17 +1481,17 @@ export default function HomePageClient() {
                       email={item.email}
                       size="sm"
                     />
-                    <p className="text-sm font-semibold text-black md:text-base">{item.label}</p>
+                    <p className="truncate text-xs font-semibold text-black md:text-base">{item.label}</p>
                   </div>
 
                   <p
-                    className={`mt-1 text-sm font-extrabold md:mt-0 md:justify-self-center md:text-center md:text-base ${
+                    className={`mt-1 whitespace-nowrap text-xs font-extrabold md:mt-0 md:justify-self-center md:text-center md:text-base ${
                       item.repasseBruto >= 0 ? "text-green-600" : "text-red-600"
                     }`}
                   >
                     R$ {formatarNumero(item.repasseBruto)}
                   </p>
-                  <p className="text-xs text-gray-500 md:justify-self-end md:text-right md:text-sm">
+                  <p className="whitespace-nowrap text-[11px] text-gray-500 md:justify-self-end md:text-right md:text-sm">
                     ROI {formatarNumero(item.roiMes)}% • {item.operacoesCount} operações
                   </p>
                 </div>

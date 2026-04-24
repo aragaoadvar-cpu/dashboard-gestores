@@ -200,6 +200,7 @@ export default function OperacoesPageClient() {
     let gestoresDoAdmin: string[] = [];
     let ownerDoAuxiliar: string | null = null;
     let ownerRoleDoAuxiliar: RoleOwnerAuxiliar = null;
+    let operacaoIdsPermitidasAuxiliar: number[] = [];
 
     if (roleAtual === "admin") {
       const { data: gestoresData, error: gestoresError } = await supabase
@@ -256,27 +257,67 @@ export default function OperacoesPageClient() {
         setCarregando(false);
         return;
       }
+
+      const { data: permissoesAuxiliarData, error: permissoesAuxiliarError } = await supabase
+        .from("operacao_auxiliares")
+        .select("operacao_id")
+        .eq("auxiliar_user_id", user.id);
+
+      if (permissoesAuxiliarError) {
+        setErro(
+          `Erro ao carregar permissões de operações do auxiliar: ${JSON.stringify(
+            permissoesAuxiliarError
+          )}`
+        );
+        setCarregando(false);
+        return;
+      }
+
+      operacaoIdsPermitidasAuxiliar =
+        ((permissoesAuxiliarData as Array<{ operacao_id: number | null }>) || [])
+          .map((item) => Number(item.operacao_id))
+          .filter((id) => Number.isInteger(id) && id > 0);
     }
 
     setOwnerIdAuxiliar(ownerDoAuxiliar);
     setOwnerRoleAuxiliar(ownerRoleDoAuxiliar);
 
-    let operacoesQuery = supabase
-      .from("operacoes")
-      .select("id, nome, mes, ano, user_id, repasse_percentual")
-      .eq("mes", mesSelecionado)
-      .eq("ano", anoSelecionado)
-      .order("id", { ascending: true });
+    let operacoesData: Operacao[] | null = null;
+    let operacoesError: unknown = null;
 
-    if (roleAtual === "gestor") {
-      operacoesQuery = operacoesQuery.eq("user_id", user.id);
-    } else if (roleAtual === "admin") {
-      operacoesQuery = operacoesQuery.in("user_id", [user.id, ...gestoresDoAdmin]);
-    } else if (roleAtual === "auxiliar" && ownerDoAuxiliar) {
-      operacoesQuery = operacoesQuery.eq("user_id", ownerDoAuxiliar);
+    if (roleAtual === "auxiliar") {
+      if (operacaoIdsPermitidasAuxiliar.length === 0) {
+        operacoesData = [];
+      } else {
+        const resultado = await supabase
+          .from("operacoes")
+          .select("id, nome, mes, ano, user_id, repasse_percentual")
+          .in("id", operacaoIdsPermitidasAuxiliar)
+          .eq("mes", mesSelecionado)
+          .eq("ano", anoSelecionado)
+          .order("id", { ascending: true });
+
+        operacoesData = (resultado.data as Operacao[] | null) ?? null;
+        operacoesError = resultado.error;
+      }
+    } else {
+      let operacoesQuery = supabase
+        .from("operacoes")
+        .select("id, nome, mes, ano, user_id, repasse_percentual")
+        .eq("mes", mesSelecionado)
+        .eq("ano", anoSelecionado)
+        .order("id", { ascending: true });
+
+      if (roleAtual === "gestor") {
+        operacoesQuery = operacoesQuery.eq("user_id", user.id);
+      } else if (roleAtual === "admin") {
+        operacoesQuery = operacoesQuery.in("user_id", [user.id, ...gestoresDoAdmin]);
+      }
+
+      const resultado = await operacoesQuery;
+      operacoesData = (resultado.data as Operacao[] | null) ?? null;
+      operacoesError = resultado.error;
     }
-
-    const { data: operacoesData, error: operacoesError } = await operacoesQuery;
 
     if (operacoesError) {
       setErro(`Erro ao carregar operações: ${JSON.stringify(operacoesError)}`);

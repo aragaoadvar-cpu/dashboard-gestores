@@ -3,7 +3,7 @@ import { sendInviteEmail } from "@/lib/invitations/email";
 import { generateInviteToken, hashInviteToken } from "@/lib/invitations/token";
 
 type InviteType = "admin" | "gestor" | "auxiliar";
-type InviteStatus = "pending" | "accepted" | "revoked" | "expired";
+type InviteStatus = "pending" | "accepted" | "revoked" | "expired" | "active_linked";
 type RoleUsuario = "dono" | "admin" | "gestor" | "auxiliar";
 const PERMANENT_EXPIRES_AT = "2099-12-31T23:59:59.000Z";
 type GestorAtivoResumo = {
@@ -181,6 +181,19 @@ export async function GET() {
     return Response.json({ success: false, error: "Usuário não autenticado." }, { status: 401 });
   }
 
+  const { data: actorProfileData, error: actorProfileError } = await supabase
+    .from("profiles")
+    .select("nome")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (actorProfileError) {
+    return Response.json(
+      { success: false, error: `Erro ao carregar nome do usuário: ${actorProfileError.message}` },
+      { status: 500 }
+    );
+  }
+
   const { role, error: roleError } = await getUserRole(supabase, user.id);
 
   if (roleError || !role) {
@@ -224,7 +237,7 @@ export async function GET() {
     );
   }
 
-  const invites = (data || []).map((invite) => ({
+  const rawInvites = (data || []).map((invite) => ({
     ...invite,
     can_revoke: invite.status === "pending",
   }));
@@ -271,7 +284,7 @@ export async function GET() {
   if (role === "admin" || role === "gestor") {
     const { data: auxiliaresData, error: auxiliaresError } = await supabase
       .from("auxiliar_vinculos")
-      .select("owner_user_id, owner_role, auxiliar_user_id, created_at")
+      .select("auxiliar_user_id, owner_user_id, owner_role, status, created_at")
       .eq("owner_user_id", user.id)
       .eq("status", "ativo");
 
@@ -284,9 +297,10 @@ export async function GET() {
 
     vinculosAuxiliaresFiltrados =
       (auxiliaresData as Array<{
+        auxiliar_user_id: string;
         owner_user_id: string;
         owner_role: string | null;
-        auxiliar_user_id: string;
+        status: string;
         created_at: string;
       }>) || [];
   }
@@ -346,10 +360,12 @@ export async function GET() {
   }
 
   const acceptedByUserIdSet = new Set(
-    invites
+    rawInvites
       .filter(
         (invite) =>
-          (invite.status as InviteStatus) === "accepted" && !!invite.accepted_by_user_id
+          ((invite.status as InviteStatus) === "accepted" ||
+            (invite.status as InviteStatus) === "active_linked") &&
+          !!invite.accepted_by_user_id
       )
       .map((invite) => invite.accepted_by_user_id as string)
   );
@@ -364,12 +380,33 @@ export async function GET() {
     tem_convite_aceito: acceptedByUserIdSet.has(vinculo.gestor_user_id),
   }));
 
+  const auxiliarIds = Array.from(
+    new Set(vinculosAuxiliaresFiltrados.map((vinculo) => vinculo.auxiliar_user_id))
+  );
+
+  const perfisAuxiliaresMap: Record<string, { nome: string | null; email: string | null }> = {};
+  if (auxiliarIds.length > 0) {
+    const { data: perfisAuxiliaresData, error: perfisAuxiliaresError } = await supabase
+      .from("profiles")
+      .select("id, nome")
+      .in("id", auxiliarIds);
+
+    if (!perfisAuxiliaresError) {
+      for (const perfil of (perfisAuxiliaresData as Array<{ id: string; nome: string | null }>) || []) {
+        perfisAuxiliaresMap[perfil.id] = {
+          nome: perfil.nome,
+          email: null,
+        };
+      }
+    }
+  }
+
   const auxiliaresAtivos: AuxiliarAtivoResumo[] = vinculosAuxiliaresFiltrados.map((vinculo) => ({
     auxiliar_user_id: vinculo.auxiliar_user_id,
-    auxiliar_nome: perfisMap[vinculo.auxiliar_user_id]?.nome ?? null,
-    auxiliar_email: perfisMap[vinculo.auxiliar_user_id]?.email ?? null,
+    auxiliar_nome: perfisAuxiliaresMap[vinculo.auxiliar_user_id]?.nome ?? null,
+    auxiliar_email: perfisAuxiliaresMap[vinculo.auxiliar_user_id]?.email ?? null,
     owner_user_id: vinculo.owner_user_id,
-    owner_nome: perfisMap[vinculo.owner_user_id]?.nome ?? null,
+    owner_nome: actorProfileData?.nome ?? null,
     owner_role:
       vinculo.owner_role === "admin"
         ? "admin"
@@ -377,8 +414,39 @@ export async function GET() {
         ? "gestor"
         : null,
     vinculado_em: vinculo.created_at,
-    tem_convite_aceito: acceptedByUserIdSet.has(vinculo.auxiliar_user_id),
+    tem_convite_aceito: true,
   }));
+
+  const auxiliaresAtivosSet = new Set(auxiliaresAtivos.map((item) => item.auxiliar_user_id));
+  const gestoresAtivosSet = new Set(gestoresAtivos.map((item) => item.gestor_user_id));
+
+  const invites = rawInvites.map((invite) => {
+    if (invite.invite_type === "auxiliar") {
+      const auxiliarId = invite.accepted_by_user_id ?? null;
+      const auxiliarAtivo = !!auxiliarId && auxiliaresAtivosSet.has(auxiliarId);
+
+      return {
+        ...invite,
+        status: auxiliarAtivo && invite.status === "accepted" ? "active_linked" : invite.status,
+        auxiliar_user_id: auxiliarId,
+        can_revoke: invite.status === "pending",
+      };
+    }
+
+    if (invite.invite_type === "gestor") {
+      const gestorId = invite.accepted_by_user_id ?? null;
+      const gestorAtivo = !!gestorId && gestoresAtivosSet.has(gestorId);
+
+      return {
+        ...invite,
+        status: gestorAtivo && invite.status === "accepted" ? "active_linked" : invite.status,
+        gestor_user_id: gestorId,
+        can_revoke: invite.status === "pending",
+      };
+    }
+
+    return invite;
+  });
 
   return Response.json(
     { success: true, role, invites, gestores_ativos: gestoresAtivos, auxiliares_ativos: auxiliaresAtivos },
