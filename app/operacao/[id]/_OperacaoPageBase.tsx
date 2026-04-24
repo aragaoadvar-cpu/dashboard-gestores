@@ -254,7 +254,11 @@ export default function OperacaoPage() {
       }
 
       if (!operacaoData) {
-        setErroTela("Operação não encontrada ou sem permissão de acesso.");
+        if (roleAtual === "auxiliar") {
+          setErroTela("Você não tem permissão para acessar esta operação.");
+        } else {
+          setErroTela("Operação não encontrada ou sem permissão de acesso.");
+        }
         setCarregando(false);
         return;
       }

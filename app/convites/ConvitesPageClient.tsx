@@ -43,6 +43,14 @@ type AuxiliarAtivo = {
   tem_convite_aceito: boolean;
 };
 
+type OperacaoPermissaoAuxiliar = {
+  id: number;
+  nome: string;
+  mes: number;
+  ano: number;
+  permitida: boolean;
+};
+
 function formatarData(dataIso: string | null) {
   if (!dataIso) return "-";
   const data = new Date(dataIso);
@@ -93,6 +101,13 @@ export default function ConvitesPageClient() {
   const [copiandoConviteId, setCopiandoConviteId] = useState<string | null>(null);
   const [reenviandoConviteId, setReenviandoConviteId] = useState<string | null>(null);
   const [inativandoUsuarioId, setInativandoUsuarioId] = useState<string | null>(null);
+  const [auxiliarGerenciandoId, setAuxiliarGerenciandoId] = useState<string | null>(null);
+  const [auxiliarGerenciandoLabel, setAuxiliarGerenciandoLabel] = useState("");
+  const [permissoesOperacoesAuxiliar, setPermissoesOperacoesAuxiliar] = useState<
+    OperacaoPermissaoAuxiliar[]
+  >([]);
+  const [carregandoPermissoes, setCarregandoPermissoes] = useState(false);
+  const [salvandoPermissoes, setSalvandoPermissoes] = useState(false);
 
   const tipoConviteDaTela: InviteType =
     roleUsuario === "dono"
@@ -412,6 +427,99 @@ export default function ConvitesPageClient() {
     }
   }
 
+  async function abrirGerenciarOperacoes(auxiliarId: string, label: string) {
+    setErro("");
+    setMensagem("");
+    setAuxiliarGerenciandoId(auxiliarId);
+    setAuxiliarGerenciandoLabel(label);
+    setPermissoesOperacoesAuxiliar([]);
+    setCarregandoPermissoes(true);
+
+    try {
+      const response = await fetch(`/api/auxiliares/${encodeURIComponent(auxiliarId)}/operacoes`, {
+        method: "GET",
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data?.success) {
+        setErro(data?.error ?? "Não foi possível carregar permissões de operações do auxiliar.");
+        setAuxiliarGerenciandoId(null);
+        setAuxiliarGerenciandoLabel("");
+        setCarregandoPermissoes(false);
+        return;
+      }
+
+      setPermissoesOperacoesAuxiliar(
+        ((data.operacoes as OperacaoPermissaoAuxiliar[]) || []).sort((a, b) => {
+          if (a.ano !== b.ano) return b.ano - a.ano;
+          if (a.mes !== b.mes) return b.mes - a.mes;
+          return a.nome.localeCompare(b.nome, "pt-BR");
+        })
+      );
+    } catch (error) {
+      setErro(`Erro ao carregar permissões de operações: ${(error as Error).message}`);
+      setAuxiliarGerenciandoId(null);
+      setAuxiliarGerenciandoLabel("");
+    } finally {
+      setCarregandoPermissoes(false);
+    }
+  }
+
+  function fecharGerenciarOperacoes() {
+    if (salvandoPermissoes) return;
+    setAuxiliarGerenciandoId(null);
+    setAuxiliarGerenciandoLabel("");
+    setPermissoesOperacoesAuxiliar([]);
+    setCarregandoPermissoes(false);
+  }
+
+  function alternarPermissaoOperacao(operacaoId: number) {
+    setPermissoesOperacoesAuxiliar((atual) =>
+      atual.map((item) =>
+        item.id === operacaoId ? { ...item, permitida: !item.permitida } : item
+      )
+    );
+  }
+
+  async function salvarPermissoesOperacoes() {
+    if (!auxiliarGerenciandoId) return;
+
+    setErro("");
+    setMensagem("");
+    setSalvandoPermissoes(true);
+
+    try {
+      const idsPermitidos = permissoesOperacoesAuxiliar
+        .filter((item) => item.permitida)
+        .map((item) => item.id);
+
+      const response = await fetch(
+        `/api/auxiliares/${encodeURIComponent(auxiliarGerenciandoId)}/operacoes`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ operacao_ids_permitidas: idsPermitidos }),
+        }
+      );
+
+      const data = await response.json();
+      if (!response.ok || !data?.success) {
+        setErro(data?.error ?? "Não foi possível salvar permissões do auxiliar.");
+        setSalvandoPermissoes(false);
+        return;
+      }
+
+      setMensagem("Permissões de operações atualizadas com sucesso.");
+      setSalvandoPermissoes(false);
+      fecharGerenciarOperacoes();
+    } catch (error) {
+      setErro(`Erro ao salvar permissões: ${(error as Error).message}`);
+      setSalvandoPermissoes(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-transparent p-4 md:p-6 xl:p-8">
       <section className="mx-auto max-w-7xl">
@@ -616,6 +724,20 @@ export default function ConvitesPageClient() {
                   )}
                   {podeInativar && (
                     <div className="mt-3 flex flex-wrap gap-2">
+                      {podeInativarAuxiliar && userVinculadoId && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            abrirGerenciarOperacoes(
+                              userVinculadoId as string,
+                              convite.invited_email
+                            )
+                          }
+                          className="rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100"
+                        >
+                          Gerenciar operações
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() =>
@@ -636,6 +758,86 @@ export default function ConvitesPageClient() {
           </div>
         </section>
       </section>
+
+      {auxiliarGerenciandoId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
+          <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-[#0f172a] p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-extrabold text-slate-100 md:text-xl">
+                  Gerenciar operações do auxiliar
+                </h3>
+                <p className="mt-1 text-sm text-slate-400">{auxiliarGerenciandoLabel}</p>
+              </div>
+
+              <button
+                type="button"
+                onClick={fecharGerenciarOperacoes}
+                disabled={salvandoPermissoes}
+                className="rounded-xl border border-white/20 bg-[#0b1222] px-3 py-1 text-sm font-semibold text-slate-100 disabled:opacity-60"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-white/10 bg-[#0b1222]/70 p-4">
+              {carregandoPermissoes && (
+                <p className="text-sm text-slate-300">Carregando operações...</p>
+              )}
+
+              {!carregandoPermissoes && permissoesOperacoesAuxiliar.length === 0 && (
+                <p className="text-sm text-slate-300">
+                  Nenhuma operação encontrada para este owner.
+                </p>
+              )}
+
+              {!carregandoPermissoes && permissoesOperacoesAuxiliar.length > 0 && (
+                <div className="max-h-[45vh] space-y-2 overflow-auto pr-1">
+                  {permissoesOperacoesAuxiliar.map((operacao) => (
+                    <label
+                      key={operacao.id}
+                      className="flex cursor-pointer items-center justify-between rounded-xl border border-white/10 bg-[#0f172a]/80 px-3 py-2"
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-slate-100">{operacao.nome}</p>
+                        <p className="text-xs text-slate-400">
+                          {String(operacao.mes).padStart(2, "0")}/{operacao.ano} • ID #{operacao.id}
+                        </p>
+                      </div>
+
+                      <input
+                        type="checkbox"
+                        checked={operacao.permitida}
+                        onChange={() => alternarPermissaoOperacao(operacao.id)}
+                        className="h-4 w-4 accent-cyan-500"
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={fecharGerenciarOperacoes}
+                disabled={salvandoPermissoes}
+                className="rounded-xl border border-white/20 bg-transparent px-4 py-2 text-sm font-semibold text-slate-100 disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={salvarPermissoesOperacoes}
+                disabled={salvandoPermissoes || carregandoPermissoes}
+                className="rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {salvandoPermissoes ? "Salvando..." : "Salvar permissões"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
