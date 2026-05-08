@@ -1,8 +1,17 @@
 "use client";
 
+import {
+  type AuxiliarComissaoAtiva,
+  calcularBaseComissaoAuxiliarConvidador,
+  calcularTotalComissoesAuxiliares,
+} from "@/lib/comissao/calcularTotalComissoesAuxiliares";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { buildHrefComPeriodo, getMesAnoFromSearchParams } from "../../lib/periodo";
+import ResponsiveMetricValue from "../components/ResponsiveMetricValue";
 import { createClient } from "../../lib/supabase/client";
+import MonthYearPicker from "../components/MonthYearPicker";
 import UserAvatar from "../components/UserAvatar";
 
 type RoleUsuario = "dono" | "admin" | "gestor";
@@ -22,6 +31,7 @@ type GestorResumo = {
   comissaoBruta: number;
   comissaoLiquidaBase: number;
   despesasDebito: number;
+  comissaoAuxiliar: number;
   comissaoLiquida: number;
 };
 
@@ -82,6 +92,7 @@ const RESUMO_VAZIO: GestorResumo = {
   comissaoBruta: 0,
   comissaoLiquidaBase: 0,
   despesasDebito: 0,
+  comissaoAuxiliar: 0,
   comissaoLiquida: 0,
 };
 
@@ -105,13 +116,24 @@ function getCorResultado(valor: number) {
   return "text-green-600";
 }
 
+function calcularLucroAdminGestor(comissaoBruta: number, comissaoGestores: number) {
+  if (comissaoGestores <= 0) {
+    return comissaoBruta;
+  }
+
+  return comissaoBruta - comissaoGestores;
+}
+
 export default function GestoresPageClient() {
   const supabase = useMemo(() => createClient(), []);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const hoje = useMemo(() => new Date(), []);
+  const periodoInicial = useMemo(() => getMesAnoFromSearchParams(searchParams, hoje), [searchParams, hoje]);
 
-  const [mesSelecionado, setMesSelecionado] = useState(hoje.getMonth() + 1);
-  const [anoSelecionado, setAnoSelecionado] = useState(hoje.getFullYear());
-  const [periodoAberto, setPeriodoAberto] = useState(false);
+  const [mesSelecionado, setMesSelecionado] = useState(periodoInicial.mes);
+  const [anoSelecionado, setAnoSelecionado] = useState(periodoInicial.ano);
 
   const [roleUsuario, setRoleUsuario] = useState<RoleUsuario>("gestor");
   const [userIdAtual, setUserIdAtual] = useState("");
@@ -121,27 +143,6 @@ export default function GestoresPageClient() {
   const [resumoAdminProprio, setResumoAdminProprio] = useState<GestorResumo | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
-
-  const periodosDisponiveis = useMemo(() => {
-    const itens: { mes: number; ano: number; label: string }[] = [];
-    const anoBase = hoje.getFullYear();
-
-    for (let ano = anoBase - 1; ano <= anoBase + 2; ano++) {
-      for (let mes = 1; mes <= 12; mes++) {
-        const mesInfo = MESES.find((item) => item.valor === mes);
-        itens.push({
-          mes,
-          ano,
-          label: `${mesInfo?.label}/${ano}`,
-        });
-      }
-    }
-
-    return itens.sort((a, b) => {
-      if (a.ano !== b.ano) return b.ano - a.ano;
-      return b.mes - a.mes;
-    });
-  }, [hoje]);
 
   const nomeMesSelecionado = useMemo(() => {
     return MESES.find((mes) => mes.valor === mesSelecionado)?.nome || "";
@@ -215,12 +216,17 @@ export default function GestoresPageClient() {
   const resumoContabilidadeAdmin = useMemo(() => {
     const lucroAdminGestores = gestores.reduce((acc, gestor) => {
       const resumo = resumoPorGestor[gestor.id] || RESUMO_VAZIO;
-      const lucroAdminGestor = resumo.comissaoBruta - resumo.comissaoLiquida;
+      const lucroAdminGestor = calcularLucroAdminGestor(
+        resumo.comissaoBruta,
+        resumo.comissaoLiquida
+      );
       return acc + lucroAdminGestor;
     }, 0);
 
     const lucroAdminOperacaoPropria = resumoAdminProprio
-      ? resumoAdminProprio.comissaoBruta - resumoAdminProprio.despesasDebito
+      ? resumoAdminProprio.comissaoBruta -
+        resumoAdminProprio.despesasDebito -
+        resumoAdminProprio.comissaoAuxiliar
       : 0;
 
     const lucroTotalAdmin = lucroAdminGestores + lucroAdminOperacaoPropria;
@@ -249,6 +255,21 @@ export default function GestoresPageClient() {
       comissaoGestoresPorGestor,
     };
   }, [gestores, resumoPorGestor, resumoAdminProprio]);
+
+  useEffect(() => {
+    setMesSelecionado(periodoInicial.mes);
+    setAnoSelecionado(periodoInicial.ano);
+  }, [periodoInicial]);
+
+  const atualizarPeriodoNaUrl = useCallback(
+    (mes: number, ano: number) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("mes", String(mes));
+      params.set("ano", String(ano));
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [pathname, router, searchParams]
+  );
 
   const carregarGestores = useCallback(async () => {
     setCarregando(true);
@@ -326,6 +347,7 @@ export default function GestoresPageClient() {
     let gestorIds: string[] = [];
 
     const taxasAdminPorGestorId: Record<string, AdminGestorTaxas> = {};
+    const comissoesAuxiliaresPorConvidadorId = new Map<string, AuxiliarComissaoAtiva[]>();
 
     if (roleAtual === "admin") {
       const { data: vinculosData, error: vinculosError } = await supabase
@@ -362,6 +384,79 @@ export default function GestoresPageClient() {
 
         for (const taxa of (taxasData as AdminGestorTaxas[]) || []) {
           taxasAdminPorGestorId[taxa.gestor_user_id] = taxa;
+        }
+      }
+
+      const ownerIdsComAuxiliares = [user.id, ...gestorIds];
+      const { data: comissoesAuxiliaresData, error: comissoesAuxiliaresError } = await supabase
+        .from("auxiliar_comissoes")
+        .select(
+          "id, convidador_user_id, auxiliar_user_id, percentual_comissao, percentual_desconto"
+        )
+        .in("convidador_user_id", ownerIdsComAuxiliares)
+        .eq("ativo", true)
+        .eq("mes", mesSelecionado)
+        .eq("ano", anoSelecionado)
+        .not("percentual_comissao", "is", null);
+
+      if (comissoesAuxiliaresError) {
+        setErro(
+          `Erro ao carregar comissões dos auxiliares: ${JSON.stringify(comissoesAuxiliaresError)}`
+        );
+        setCarregando(false);
+        return;
+      }
+
+      const comissoesAuxiliaresLista = (comissoesAuxiliaresData as Array<
+        AuxiliarComissaoAtiva & { convidador_user_id: string | null }
+      >) || [];
+
+      if (comissoesAuxiliaresLista.length > 0) {
+        const { data: despesasExtrasData, error: despesasExtrasError } = await supabase
+          .from("auxiliar_comissao_despesas_extras")
+          .select("auxiliar_comissao_id, valor")
+          .in(
+            "auxiliar_comissao_id",
+            comissoesAuxiliaresLista.map((item) => item.id)
+          )
+          .eq("mes", mesSelecionado)
+          .eq("ano", anoSelecionado);
+
+        if (despesasExtrasError) {
+          setErro(
+            `Erro ao carregar despesas extras das comissões: ${JSON.stringify(
+              despesasExtrasError
+            )}`
+          );
+          setCarregando(false);
+          return;
+        }
+
+        const totaisPorComissaoId = new Map<string, number>();
+        for (const despesa of
+          ((despesasExtrasData as Array<{
+            auxiliar_comissao_id: string | null;
+            valor: number | null;
+          }>) || [])) {
+          if (!despesa.auxiliar_comissao_id) continue;
+          totaisPorComissaoId.set(
+            despesa.auxiliar_comissao_id,
+            (totaisPorComissaoId.get(despesa.auxiliar_comissao_id) || 0) +
+              Number(despesa.valor ?? 0)
+          );
+        }
+
+        for (const comissao of comissoesAuxiliaresLista) {
+          if (!comissao.convidador_user_id) continue;
+          const lista = comissoesAuxiliaresPorConvidadorId.get(comissao.convidador_user_id) || [];
+          lista.push({
+            id: comissao.id,
+            auxiliar_user_id: comissao.auxiliar_user_id,
+            percentual_comissao: comissao.percentual_comissao,
+            percentual_desconto: comissao.percentual_desconto,
+            total_despesas_extras: totaisPorComissaoId.get(comissao.id) || 0,
+          });
+          comissoesAuxiliaresPorConvidadorId.set(comissao.convidador_user_id, lista);
         }
       }
     } else {
@@ -480,6 +575,24 @@ export default function GestoresPageClient() {
         0
       );
 
+      const baseComissaoAuxAdmin = calcularBaseComissaoAuxiliarConvidador(
+        user.id,
+        operacoesPropriasLista,
+        Array.from(lancamentosPropriosPorOperacao.values()).flat(),
+        ((despesasPropriasData as Despesa[]) || []).map((despesa) => ({
+          user_id: user.id,
+          valor: despesa.valor,
+          percentual_desconto: despesa.percentual_desconto,
+        }))
+      );
+      const comissaoAuxiliarAdmin =
+        baseComissaoAuxAdmin > 0
+          ? calcularTotalComissoesAuxiliares(
+              baseComissaoAuxAdmin,
+              comissoesAuxiliaresPorConvidadorId.get(user.id) || []
+            ).totalComissoesAuxiliares
+          : 0;
+
       setResumoAdminProprio({
         operacoesCount: operacoesPropriasLista.length,
         receitaTotal: receitaTotalAdmin,
@@ -489,6 +602,7 @@ export default function GestoresPageClient() {
         comissaoBruta: comissaoBrutaAdmin,
         comissaoLiquidaBase: comissaoBrutaAdmin,
         despesasDebito: despesasDebitoAdmin,
+        comissaoAuxiliar: comissaoAuxiliarAdmin,
         comissaoLiquida: comissaoBrutaAdmin - despesasDebitoAdmin,
       });
     }
@@ -583,6 +697,7 @@ export default function GestoresPageClient() {
         comissaoBruta: 0,
         comissaoLiquidaBase: 0,
         despesasDebito: 0,
+        comissaoAuxiliar: 0,
         comissaoLiquida: 0,
       };
     }
@@ -601,6 +716,7 @@ export default function GestoresPageClient() {
           comissaoBruta: 0,
           comissaoLiquidaBase: 0,
           despesasDebito: 0,
+          comissaoAuxiliar: 0,
           comissaoLiquida: 0,
         };
       }
@@ -768,39 +884,16 @@ export default function GestoresPageClient() {
 
         <section className="mt-6 rounded-[24px] border border-white/10 bg-[#0f172a]/85 p-4 shadow-[0_20px_45px_rgba(2,6,23,0.55)] md:p-6">
           <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setPeriodoAberto((prev) => !prev)}
-                className="rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-3 text-sm font-semibold text-slate-100 md:px-5 md:text-base"
-              >
-                Selecionar período — {MESES.find((m) => m.valor === mesSelecionado)?.label}/
-                {anoSelecionado}
-              </button>
-
-              {periodoAberto && (
-                <div className="absolute left-0 top-full z-20 mt-2 max-h-72 w-56 overflow-y-auto rounded-2xl border border-white/15 bg-[#0b1222] p-2 shadow-xl">
-                  {periodosDisponiveis.map((periodo) => (
-                    <button
-                      key={`${periodo.mes}-${periodo.ano}`}
-                      type="button"
-                      onClick={() => {
-                        setMesSelecionado(periodo.mes);
-                        setAnoSelecionado(periodo.ano);
-                        setPeriodoAberto(false);
-                      }}
-                      className={`block w-full rounded-xl px-3 py-2 text-left text-sm ${
-                        periodo.mes === mesSelecionado && periodo.ano === anoSelecionado
-                          ? "bg-cyan-500 text-white"
-                          : "text-slate-100 hover:bg-white/10"
-                      }`}
-                    >
-                      {periodo.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <MonthYearPicker
+              mes={mesSelecionado}
+              ano={anoSelecionado}
+              onChange={(mes, ano) => {
+                setMesSelecionado(mes);
+                setAnoSelecionado(ano);
+                atualizarPeriodoNaUrl(mes, ano);
+              }}
+              variant="dark"
+            />
 
             <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300 md:text-base">
               Período selecionado:{" "}
@@ -900,7 +993,10 @@ export default function GestoresPageClient() {
                 if (item.tipo === "gestor") {
                   const gestor = item.gestor;
                   const resumo = item.resumo;
-                  const lucroAdmin = resumo.comissaoBruta - resumo.comissaoLiquida;
+                  const lucroAdmin = calcularLucroAdminGestor(
+                    resumo.comissaoBruta,
+                    resumo.comissaoLiquida
+                  );
 
                   return (
                     <article
@@ -928,78 +1024,94 @@ export default function GestoresPageClient() {
                       <div className="mt-3 grid grid-cols-2 gap-3">
                         <div className="rounded-xl border border-slate-200 card-white-modern p-3">
                           <p className="text-xs text-slate-500">Receita</p>
-                          <p className="text-sm font-extrabold text-blue-600">
-                            R$ {formatarNumero(resumo.receitaTotal)}
-                          </p>
+                          <ResponsiveMetricValue
+                            value={`R$ ${formatarNumero(resumo.receitaTotal)}`}
+                            size="compact"
+                            className="text-blue-600"
+                          />
                         </div>
 
                         <div className="rounded-xl border border-slate-200 card-white-modern p-3">
                           <p className="text-xs text-slate-500">Custo</p>
-                          <p className="text-sm font-extrabold text-red-600">
-                            R$ {formatarNumero(resumo.custoTotal)}
-                          </p>
+                          <ResponsiveMetricValue
+                            value={`R$ ${formatarNumero(resumo.custoTotal)}`}
+                            size="compact"
+                            className="text-red-600"
+                          />
                         </div>
 
                         <div className="rounded-xl border border-slate-200 card-white-modern p-3">
                           <p className="text-xs text-slate-500">Lucro</p>
-                          <p className={`text-sm font-extrabold ${getCorResultado(resumo.lucroTotal)}`}>
-                            R$ {formatarNumero(resumo.lucroTotal)}
-                          </p>
+                          <ResponsiveMetricValue
+                            value={`R$ ${formatarNumero(resumo.lucroTotal)}`}
+                            size="compact"
+                            className={getCorResultado(resumo.lucroTotal)}
+                          />
                         </div>
 
                         <div className="rounded-xl border border-slate-200 card-white-modern p-3">
                           <p className="text-xs text-slate-500">ROI</p>
-                          <p className={`text-sm font-extrabold ${getCorResultado(resumo.roi)}`}>
-                            {formatarNumero(resumo.roi)}%
-                          </p>
+                          <ResponsiveMetricValue
+                            value={`${formatarNumero(resumo.roi)}%`}
+                            size="compact"
+                            className={getCorResultado(resumo.roi)}
+                          />
                         </div>
 
                         <div className="rounded-xl border border-slate-200 card-white-modern p-3">
                           <p className="text-xs text-slate-500">Comissão bruta</p>
-                          <p
-                            className={`text-sm font-extrabold ${getCorResultado(
-                              resumo.comissaoBruta
-                            )}`}
-                          >
-                            R$ {formatarNumero(resumo.comissaoBruta)}
-                          </p>
+                          <ResponsiveMetricValue
+                            value={`R$ ${formatarNumero(resumo.comissaoBruta)}`}
+                            size="compact"
+                            className={getCorResultado(resumo.comissaoBruta)}
+                          />
                         </div>
 
                         <div className="rounded-xl border border-slate-200 card-white-modern p-3">
                           <p className="text-xs text-slate-500">Despesas</p>
-                          <p className="text-sm font-extrabold text-red-600">
-                            R$ {formatarNumero(resumo.despesasDebito)}
-                          </p>
+                          <ResponsiveMetricValue
+                            value={`R$ ${formatarNumero(resumo.despesasDebito)}`}
+                            size="compact"
+                            className="text-red-600"
+                          />
                         </div>
 
                         <div className="rounded-xl border border-slate-200 card-white-modern p-3 col-span-2">
                           <p className="text-xs text-slate-500">Comissão gestores</p>
-                          <p
-                            className={`text-sm font-extrabold ${getCorResultado(
-                              resumo.comissaoLiquida
-                            )}`}
-                          >
-                            R$ {formatarNumero(resumo.comissaoLiquida)}
-                          </p>
+                          <ResponsiveMetricValue
+                            value={`R$ ${formatarNumero(resumo.comissaoLiquida)}`}
+                            size="card"
+                            className={getCorResultado(resumo.comissaoLiquida)}
+                          />
                         </div>
 
                         <div className="rounded-xl border border-slate-200 card-white-modern p-3 col-span-2">
                           <p className="text-xs text-slate-500">Lucro {nomeAdminAtualComCargo}</p>
-                          <p className={`text-sm font-extrabold ${getCorResultado(lucroAdmin)}`}>
-                            R$ {formatarNumero(lucroAdmin)}
-                          </p>
+                          <ResponsiveMetricValue
+                            value={`R$ ${formatarNumero(lucroAdmin)}`}
+                            size="card"
+                            className={getCorResultado(lucroAdmin)}
+                          />
                         </div>
                       </div>
 
                       <Link
-                        href={`/gestores/${encodeURIComponent(gestor.id)}`}
+                        href={buildHrefComPeriodo(`/gestores/${encodeURIComponent(gestor.id)}`, {
+                          mes: mesSelecionado,
+                          ano: anoSelecionado,
+                        })}
                         className="mt-4 inline-flex rounded-2xl bg-gradient-to-r from-cyan-500 to-indigo-500 px-4 py-2 text-sm font-semibold text-cyan-50 transition hover:brightness-110"
                       >
                         Gerenciar gestor
                       </Link>
 
                       <Link
-                        href={`/operacoes?owner_id=${encodeURIComponent(gestor.id)}`}
+                        href={buildHrefComPeriodo("/operacoes", {
+                          mes: mesSelecionado,
+                          ano: anoSelecionado,
+                        }, {
+                          owner_id: gestor.id,
+                        })}
                         className="mt-2 inline-flex rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                       >
                         Ver operações
@@ -1009,7 +1121,10 @@ export default function GestoresPageClient() {
                 }
 
                 const resumoAdmin = item.resumo;
-                const lucroAdminProprio = resumoAdmin.comissaoBruta - resumoAdmin.despesasDebito;
+                const lucroAdminProprio =
+                  resumoAdmin.comissaoBruta -
+                  resumoAdmin.despesasDebito -
+                  resumoAdmin.comissaoAuxiliar;
                 return (
                   <article key="__admin__" className="rounded-3xl border border-slate-200 card-white-modern p-5 shadow-sm">
                     <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
@@ -1035,56 +1150,86 @@ export default function GestoresPageClient() {
                     <div className="mt-3 grid grid-cols-2 gap-3">
                       <div className="rounded-xl border border-slate-200 card-white-modern p-3">
                         <p className="text-xs text-slate-500">Receita</p>
-                        <p className="text-sm font-extrabold text-blue-600">
-                          R$ {formatarNumero(resumoAdmin.receitaTotal)}
-                        </p>
+                        <ResponsiveMetricValue
+                          value={`R$ ${formatarNumero(resumoAdmin.receitaTotal)}`}
+                          size="compact"
+                          className="text-blue-600"
+                        />
                       </div>
 
                       <div className="rounded-xl border border-slate-200 card-white-modern p-3">
                         <p className="text-xs text-slate-500">Custo</p>
-                        <p className="text-sm font-extrabold text-red-600">
-                          R$ {formatarNumero(resumoAdmin.custoTotal)}
-                        </p>
+                        <ResponsiveMetricValue
+                          value={`R$ ${formatarNumero(resumoAdmin.custoTotal)}`}
+                          size="compact"
+                          className="text-red-600"
+                        />
                       </div>
 
                       <div className="rounded-xl border border-slate-200 card-white-modern p-3">
                         <p className="text-xs text-slate-500">Lucro</p>
-                        <p className={`text-sm font-extrabold ${getCorResultado(resumoAdmin.lucroTotal)}`}>
-                          R$ {formatarNumero(resumoAdmin.lucroTotal)}
-                        </p>
+                        <ResponsiveMetricValue
+                          value={`R$ ${formatarNumero(resumoAdmin.lucroTotal)}`}
+                          size="compact"
+                          className={getCorResultado(resumoAdmin.lucroTotal)}
+                        />
                       </div>
 
                       <div className="rounded-xl border border-slate-200 card-white-modern p-3">
                         <p className="text-xs text-slate-500">ROI</p>
-                        <p className={`text-sm font-extrabold ${getCorResultado(resumoAdmin.roi)}`}>
-                          {formatarNumero(resumoAdmin.roi)}%
-                        </p>
+                        <ResponsiveMetricValue
+                          value={`${formatarNumero(resumoAdmin.roi)}%`}
+                          size="compact"
+                          className={getCorResultado(resumoAdmin.roi)}
+                        />
                       </div>
 
                       <div className="rounded-xl border border-slate-200 card-white-modern p-3">
                         <p className="text-xs text-slate-500">Comissão bruta</p>
-                        <p className={`text-sm font-extrabold ${getCorResultado(resumoAdmin.comissaoBruta)}`}>
-                          R$ {formatarNumero(resumoAdmin.comissaoBruta)}
-                        </p>
+                        <ResponsiveMetricValue
+                          value={`R$ ${formatarNumero(resumoAdmin.comissaoBruta)}`}
+                          size="compact"
+                          className={getCorResultado(resumoAdmin.comissaoBruta)}
+                        />
                       </div>
 
                       <div className="rounded-xl border border-slate-200 card-white-modern p-3">
                         <p className="text-xs text-slate-500">Despesas</p>
-                        <p className="text-sm font-extrabold text-red-600">
-                          R$ {formatarNumero(resumoAdmin.despesasDebito)}
-                        </p>
+                        <ResponsiveMetricValue
+                          value={`R$ ${formatarNumero(resumoAdmin.despesasDebito)}`}
+                          size="compact"
+                          className="text-red-600"
+                        />
                       </div>
+
+                      {resumoAdmin.comissaoAuxiliar > 0 && (
+                        <div className="rounded-xl border border-slate-200 card-white-modern p-3">
+                          <p className="text-xs text-slate-500">Comissão Aux</p>
+                          <ResponsiveMetricValue
+                            value={`R$ ${formatarNumero(resumoAdmin.comissaoAuxiliar)}`}
+                            size="compact"
+                            className="text-red-600"
+                          />
+                        </div>
+                      )}
 
                       <div className="rounded-xl border border-slate-200 card-white-modern p-3 col-span-2">
                         <p className="text-xs text-slate-500">Lucro {nomeAdminAtualComCargo}</p>
-                        <p className={`text-sm font-extrabold ${getCorResultado(lucroAdminProprio)}`}>
-                          R$ {formatarNumero(lucroAdminProprio)}
-                        </p>
+                        <ResponsiveMetricValue
+                          value={`R$ ${formatarNumero(lucroAdminProprio)}`}
+                          size="card"
+                          className={getCorResultado(lucroAdminProprio)}
+                        />
                       </div>
                     </div>
 
                     <Link
-                      href={`/operacoes?owner_id=${encodeURIComponent(userIdAtual)}`}
+                      href={buildHrefComPeriodo("/operacoes", {
+                        mes: mesSelecionado,
+                        ano: anoSelecionado,
+                      }, {
+                        owner_id: userIdAtual,
+                      })}
                       className="mt-4 inline-flex rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                     >
                       Ver operações

@@ -1,8 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
 import { useRouter } from "next/navigation";
+import type { FormEvent } from "react";
+import { useState } from "react";
 import { createClient } from "../../lib/supabase/client";
 
 type AcceptResult = {
@@ -68,7 +69,7 @@ export default function LoginPage() {
     if (!result.success) {
       return {
         success: false as const,
-        error: result.message ?? "Não foi possível aceitar o convite pendente.",
+        error: result.message ?? "Nao foi possivel aceitar o convite pendente.",
       };
     }
 
@@ -81,14 +82,14 @@ export default function LoginPage() {
     if (profileAtualizadoError) {
       return {
         success: false as const,
-        error: `Convite aceito, mas não foi possível confirmar o perfil atualizado: ${profileAtualizadoError.message}`,
+        error: `Convite aceito, mas nao foi possivel confirmar o perfil atualizado: ${profileAtualizadoError.message}`,
       };
     }
 
     if (!profileAtualizado?.role) {
       return {
         success: false as const,
-        error: "Convite aceito, mas o perfil não foi encontrado após o aceite.",
+        error: "Convite aceito, mas o perfil nao foi encontrado apos o aceite.",
       };
     }
 
@@ -118,12 +119,13 @@ export default function LoginPage() {
           setErro(error.message);
           return;
         }
+
         const {
           data: { user },
         } = await supabase.auth.getUser();
 
         if (!user) {
-          setErro("Não foi possível identificar o usuário após login.");
+          setErro("Nao foi possivel identificar o usuario apos login.");
           return;
         }
 
@@ -163,7 +165,7 @@ export default function LoginPage() {
       }
 
       setMensagem(
-        "Cadastro realizado. Se o projeto exigir confirmação por email, confirme antes de entrar."
+        "Cadastro realizado. Se o projeto exigir confirmacao por email, confirme antes de entrar."
       );
     } catch (err) {
       const message =
@@ -176,95 +178,107 @@ export default function LoginPage() {
     }
   }
 
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void entrarOuCadastrar();
+  }
+
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#06080f] p-4 md:p-6">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.16),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(99,102,241,0.18),transparent_35%)]" />
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#04070d] px-4 py-6 md:px-6">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.16),transparent_28%),radial-gradient(circle_at_20%_80%,rgba(14,165,233,0.12),transparent_24%),radial-gradient(circle_at_85%_25%,rgba(99,102,241,0.16),transparent_26%),linear-gradient(160deg,rgba(4,7,13,0.98),rgba(9,12,24,0.96),rgba(3,5,12,1))]" />
+      <div className="pointer-events-none absolute inset-0 opacity-30 [background-image:radial-gradient(rgba(255,255,255,0.85)_0.7px,transparent_0.9px)] [background-size:26px_26px]" />
+      <div className="pointer-events-none absolute left-1/2 top-1/2 h-[540px] w-[540px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-400/10 blur-3xl" />
+      <div className="pointer-events-none absolute left-1/2 top-1/2 h-[780px] w-[780px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-300/10" />
+      <div className="pointer-events-none absolute left-1/2 top-1/2 h-[980px] w-[980px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-indigo-300/8" />
+      <div className="pointer-events-none absolute left-[-8%] top-[8%] h-[340px] w-[340px] rounded-full bg-cyan-400/12 blur-[120px]" />
+      <div className="pointer-events-none absolute right-[-12%] top-[18%] h-[320px] w-[320px] rounded-full bg-indigo-500/14 blur-[120px]" />
+      <div className="pointer-events-none absolute bottom-[-14%] left-[12%] h-[260px] w-[460px] rounded-full bg-sky-500/10 blur-[120px]" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-[-18%] h-[340px] bg-[radial-gradient(ellipse_at_center,rgba(56,189,248,0.14),transparent_62%)]" />
+      <div className="pointer-events-none absolute left-1/2 top-1/2 hidden h-[2px] w-[620px] -translate-x-1/2 -translate-y-1/2 bg-gradient-to-r from-transparent via-cyan-200/30 to-transparent lg:block" />
+      <div className="pointer-events-none absolute left-1/2 top-1/2 hidden h-[620px] w-[2px] -translate-x-1/2 -translate-y-1/2 bg-gradient-to-b from-transparent via-indigo-200/20 to-transparent lg:block" />
+      <div className="pointer-events-none absolute left-[18%] top-[24%] hidden h-px w-[18%] rotate-[18deg] bg-gradient-to-r from-transparent via-cyan-200/28 to-transparent lg:block" />
+      <div className="pointer-events-none absolute right-[16%] bottom-[26%] hidden h-px w-[16%] -rotate-[22deg] bg-gradient-to-r from-transparent via-sky-200/24 to-transparent lg:block" />
 
-      <section className="relative z-10 w-full max-w-md rounded-[28px] border border-white/15 bg-[#0d1426]/90 p-6 shadow-[0_0_80px_rgba(15,23,42,0.55)] backdrop-blur md:p-8">
-        <Image
-          src="/uptime-v2.png"
-          alt="Uptime"
-          width={300}
-          height={72}
-          className="h-auto w-[180px] md:w-[220px]"
-          priority
-        />
+      <section className="relative z-10 w-full max-w-md overflow-hidden rounded-[28px] border border-white/15 bg-[#0d1426]/90 p-6 shadow-[0_0_80px_rgba(15,23,42,0.55)] backdrop-blur md:p-8">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.14),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(99,102,241,0.14),transparent_35%)]" />
 
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300/80">
-          Acesso ao sistema
-        </p>
+        <div className="relative z-10">
+          <Image
+            src="/uptime-v2.png"
+            alt="Uptime"
+            width={300}
+            height={72}
+            className="mx-auto h-auto w-[180px] md:w-[220px]"
+            priority
+          />
 
-        <h1 className="mt-2 bg-gradient-to-r from-white to-slate-300 bg-clip-text text-2xl font-extrabold text-transparent md:text-3xl">
-          {modo === "login" ? "Entrar" : "Criar conta"}
-        </h1>
+          <p className="mt-5 text-center text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300/80">
+            Acesso ao sistema
+          </p>
 
-        <p className="mt-2 text-sm text-slate-300">
-          Use seu email e senha para acessar seu painel.
-        </p>
-
-        <div className="mt-6 space-y-4">
-          <div>
-            <label className="mb-2 block text-sm font-medium text-slate-300">
-              Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-2xl border border-white/15 bg-[#0b1222] px-4 py-3 text-slate-100 placeholder:text-slate-500"
-              placeholder="voce@email.com"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium text-slate-300">
-              Senha
-            </label>
-            <input
-              type="password"
-              value={senha}
-              onChange={(e) => setSenha(e.target.value)}
-              className="w-full rounded-2xl border border-white/15 bg-[#0b1222] px-4 py-3 text-slate-100 placeholder:text-slate-500"
-              placeholder="********"
-            />
-          </div>
-
-          {!!mensagem && (
-            <div className="rounded-xl border border-emerald-300/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
-              {mensagem}
+          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-300">
+                Email
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full rounded-2xl border border-white/15 bg-[#0b1222] px-4 py-3 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-400/20"
+                placeholder="voce@email.com"
+                autoComplete="email"
+              />
             </div>
-          )}
 
-          {!!erro && (
-            <div className="rounded-xl border border-rose-300/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
-              {erro}
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-300">
+                Senha
+              </label>
+              <input
+                type="password"
+                value={senha}
+                onChange={(e) => setSenha(e.target.value)}
+                className="w-full rounded-2xl border border-white/15 bg-[#0b1222] px-4 py-3 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-400/20"
+                placeholder="********"
+                autoComplete={modo === "login" ? "current-password" : "new-password"}
+              />
             </div>
-          )}
 
-          <button
-            type="button"
-            onClick={entrarOuCadastrar}
-            disabled={carregando}
-            className="w-full rounded-2xl bg-gradient-to-r from-cyan-500 to-indigo-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition hover:brightness-110 disabled:opacity-60"
-          >
-            {carregando
-              ? "Processando..."
-              : modo === "login"
-              ? "Entrar"
-              : "Criar conta"}
-          </button>
+            {!!mensagem && (
+              <div className="rounded-xl border border-emerald-300/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+                {mensagem}
+              </div>
+            )}
 
-          <button
-            type="button"
-            onClick={() =>
-              setModo((atual) => (atual === "login" ? "cadastro" : "login"))
-            }
-            className="w-full rounded-2xl border border-white/20 bg-transparent px-5 py-3 text-sm font-semibold text-slate-100 transition hover:bg-white/10"
-          >
-            {modo === "login"
-              ? "Ainda não tenho conta"
-              : "Já tenho conta"}
-          </button>
+            {!!erro && (
+              <div className="rounded-xl border border-rose-300/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
+                {erro}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={carregando}
+              className="w-full rounded-2xl bg-gradient-to-r from-cyan-500 to-indigo-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition hover:brightness-110 disabled:opacity-60"
+            >
+              {carregando
+                ? "Processando..."
+                : modo === "login"
+                ? "Entrar"
+                : "Criar conta"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                setModo((atual) => (atual === "login" ? "cadastro" : "login"))
+              }
+              className="w-full rounded-2xl border border-white/20 bg-transparent px-5 py-3 text-sm font-semibold text-slate-100 transition hover:bg-white/10"
+            >
+              {modo === "login" ? "Ainda nao tenho conta" : "Ja tenho conta"}
+            </button>
+          </form>
         </div>
       </section>
     </main>

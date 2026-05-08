@@ -1,7 +1,10 @@
 "use client";
 
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "../../lib/supabase/client";
+import { getMesAnoFromSearchParams } from "../../lib/periodo";
+import MonthYearPicker from "../components/MonthYearPicker";
 
 type RoleUsuario = "dono" | "admin" | "gestor" | "auxiliar";
 
@@ -68,10 +71,14 @@ function calcularTotaisDespesas(despesas: Despesa[]): TotaisDespesa {
 
 export default function DespesasPageClient() {
   const supabase = useMemo(() => createClient(), []);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const hoje = useMemo(() => new Date(), []);
+  const periodoInicial = useMemo(() => getMesAnoFromSearchParams(searchParams, hoje), [searchParams, hoje]);
 
-  const [mesSelecionado, setMesSelecionado] = useState(hoje.getMonth() + 1);
-  const [anoSelecionado, setAnoSelecionado] = useState(hoje.getFullYear());
+  const [mesSelecionado, setMesSelecionado] = useState(periodoInicial.mes);
+  const [anoSelecionado, setAnoSelecionado] = useState(periodoInicial.ano);
 
   const [roleUsuario, setRoleUsuario] = useState<RoleUsuario>("gestor");
   const [userIdAtual, setUserIdAtual] = useState("");
@@ -87,11 +94,10 @@ export default function DespesasPageClient() {
   const [erro, setErro] = useState("");
   const [mensagem, setMensagem] = useState("");
 
-  const [periodoAberto, setPeriodoAberto] = useState(false);
-
   const [novaDespesaNome, setNovaDespesaNome] = useState("");
   const [novaDespesaValor, setNovaDespesaValor] = useState("");
   const [novoPercentualDesconto, setNovoPercentualDesconto] = useState("30");
+  const [userIdNovaDespesa, setUserIdNovaDespesa] = useState("");
   const [salvandoDespesa, setSalvandoDespesa] = useState(false);
 
   const [despesaEditandoId, setDespesaEditandoId] = useState<number | null>(null);
@@ -100,27 +106,6 @@ export default function DespesasPageClient() {
   const [editarPercentualDesconto, setEditarPercentualDesconto] = useState("");
   const [salvandoEdicao, setSalvandoEdicao] = useState(false);
   const [excluindoDespesaId, setExcluindoDespesaId] = useState<number | null>(null);
-
-  const periodosDisponiveis = useMemo(() => {
-    const itens: { mes: number; ano: number; label: string }[] = [];
-    const anoBase = hoje.getFullYear();
-
-    for (let ano = anoBase - 1; ano <= anoBase + 2; ano++) {
-      for (let mes = 1; mes <= 12; mes++) {
-        const mesInfo = MESES.find((item) => item.valor === mes);
-        itens.push({
-          mes,
-          ano,
-          label: `${mesInfo?.label}/${ano}`,
-        });
-      }
-    }
-
-    return itens.sort((a, b) => {
-      if (a.ano !== b.ano) return b.ano - a.ano;
-      return b.mes - a.mes;
-    });
-  }, [hoje]);
 
   const nomeMesSelecionado = useMemo(() => {
     return MESES.find((mes) => mes.valor === mesSelecionado)?.nome || "";
@@ -152,6 +137,29 @@ export default function DespesasPageClient() {
     [perfisDonoPorId]
   );
 
+  const obterRoleDonoDespesa = useCallback(
+    (userId: string | null): string | null => {
+      if (!userId) return null;
+      if (userId === userIdAtual) {
+        if (roleUsuario === "admin") return "Admin";
+        if (roleUsuario === "gestor") return "Gestor";
+        if (roleUsuario === "dono") return "Dono";
+        if (roleUsuario === "auxiliar") return "Auxiliar";
+      }
+
+      if (gestoresVinculadosIds.includes(userId)) {
+        return "Gestor";
+      }
+
+      if (roleUsuario === "auxiliar" && ownerIdAuxiliar === userId) {
+        return "Vinculado";
+      }
+
+      return null;
+    },
+    [gestoresVinculadosIds, ownerIdAuxiliar, roleUsuario, userIdAtual]
+  );
+
   const donosDisponiveis = useMemo(() => {
     const ownerIds = Array.from(new Set(despesas.map((item) => item.user_id).filter(Boolean)));
 
@@ -167,9 +175,29 @@ export default function DespesasPageClient() {
   }, [despesas, obterLabelDono]);
 
   const despesasFiltradas = useMemo(() => {
-    if (filtroDonoDespesaId === "todos") return despesas;
-    return despesas.filter((despesa) => despesa.user_id === filtroDonoDespesaId);
+    const base =
+      filtroDonoDespesaId === "todos"
+        ? despesas
+        : despesas.filter((despesa) => despesa.user_id === filtroDonoDespesaId);
+
+    return [...base].sort((a, b) =>
+      a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" })
+    );
   }, [despesas, filtroDonoDespesaId]);
+
+  const opcoesCriarDespesaPara = useMemo(() => {
+    if (roleUsuario !== "admin" || !userIdAtual) return [];
+
+    return [userIdAtual, ...gestoresVinculadosIds].map((userId) => ({
+      id: userId,
+      label:
+        userId === userIdAtual
+          ? labelPerfilAtual
+          : obterLabelDono(userId) === "Usuário não identificado"
+          ? "Gestor vinculado"
+          : obterLabelDono(userId),
+    }));
+  }, [gestoresVinculadosIds, labelPerfilAtual, obterLabelDono, roleUsuario, userIdAtual]);
 
   const totais = useMemo(() => {
     const gestoresSet = new Set(gestoresVinculadosIds);
@@ -190,6 +218,34 @@ export default function DespesasPageClient() {
       filtrado: calcularTotaisDespesas(despesasFiltradas),
     };
   }, [despesas, despesasFiltradas, gestoresVinculadosIds, roleUsuario, userIdAtual, ownerIdAuxiliar]);
+
+  useEffect(() => {
+    setMesSelecionado(periodoInicial.mes);
+    setAnoSelecionado(periodoInicial.ano);
+  }, [periodoInicial]);
+
+  const atualizarPeriodoNaUrl = useCallback(
+    (mes: number, ano: number) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("mes", String(mes));
+      params.set("ano", String(ano));
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [pathname, router, searchParams]
+  );
+
+  function podeAdminGerenciarDespesa(userIdDespesa: string | null): boolean {
+    if (roleUsuario !== "admin" || !userIdDespesa) return false;
+    return userIdDespesa === userIdAtual || gestoresVinculadosIds.includes(userIdDespesa);
+  }
+
+  function getMensagemPermissaoDespesa(acao: "editar" | "excluir"): string {
+    if (roleUsuario === "admin") {
+      return `Você só pode ${acao} despesas próprias ou de gestores vinculados.`;
+    }
+
+    return `Você só pode ${acao} despesas próprias.`;
+  }
 
   const carregarDespesas = useCallback(async () => {
     setCarregando(true);
@@ -278,6 +334,13 @@ export default function DespesasPageClient() {
     setGestoresVinculadosIds(gestoresDoAdmin);
     setOwnerIdAuxiliar(ownerDoAuxiliar);
 
+    if (roleAtual === "admin") {
+      const ownersPermitidos = new Set([user.id, ...gestoresDoAdmin]);
+      setUserIdNovaDespesa((atual) => (ownersPermitidos.has(atual) ? atual : user.id));
+    } else {
+      setUserIdNovaDespesa(user.id);
+    }
+
     let despesasQuery = supabase
       .from("despesas")
       .select("id, nome, valor, percentual_desconto, mes, ano, user_id")
@@ -305,7 +368,12 @@ export default function DespesasPageClient() {
     setDespesas(despesasLista);
 
     const ownerIds = Array.from(
-      new Set(despesasLista.map((item) => item.user_id).filter(Boolean))
+      new Set(
+        [
+          ...despesasLista.map((item) => item.user_id).filter(Boolean),
+          ...(roleAtual === "admin" ? [user.id, ...gestoresDoAdmin] : []),
+        ].filter(Boolean)
+      )
     ) as string[];
 
     if (ownerIds.length === 0) {
@@ -370,7 +438,11 @@ export default function DespesasPageClient() {
   }, [supabase, mesSelecionado, anoSelecionado, filtroDonoDespesaId]);
 
   useEffect(() => {
-    void carregarDespesas();
+    const timeoutId = window.setTimeout(() => {
+      void carregarDespesas();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
   }, [carregarDespesas]);
 
   async function salvarDespesa() {
@@ -406,9 +478,15 @@ export default function DespesasPageClient() {
 
     setSalvandoDespesa(true);
 
-    const ownerIdParaDespesa = roleUsuario === "auxiliar" ? ownerIdAuxiliar : user.id;
+    const ownerIdParaDespesa =
+      roleUsuario === "auxiliar"
+        ? ownerIdAuxiliar
+        : roleUsuario === "admin"
+        ? userIdNovaDespesa
+        : user.id;
     if (!ownerIdParaDespesa) {
       setErro("Auxiliar sem vínculo ativo para lançar despesa.");
+      setSalvandoDespesa(false);
       return;
     }
 
@@ -439,8 +517,12 @@ export default function DespesasPageClient() {
 
   function iniciarEdicaoDespesa(despesa: Despesa) {
     const userOwnerEditavel = roleUsuario === "auxiliar" ? ownerIdAuxiliar : userIdAtual;
-    if (!userOwnerEditavel || despesa.user_id !== userOwnerEditavel) {
-      setErro("Você só pode editar despesas próprias.");
+    const podeEditar =
+      (Boolean(userOwnerEditavel) && despesa.user_id === userOwnerEditavel) ||
+      podeAdminGerenciarDespesa(despesa.user_id);
+
+    if (!podeEditar) {
+      setErro(getMensagemPermissaoDespesa("editar"));
       return;
     }
 
@@ -465,8 +547,13 @@ export default function DespesasPageClient() {
 
     const despesaAlvo = despesas.find((despesa) => despesa.id === id);
     const userOwnerEditavel = roleUsuario === "auxiliar" ? ownerIdAuxiliar : userIdAtual;
-    if (!despesaAlvo || !userOwnerEditavel || despesaAlvo.user_id !== userOwnerEditavel) {
-      setErro("Você só pode editar despesas próprias.");
+    const podeEditar =
+      !!despesaAlvo &&
+      ((Boolean(userOwnerEditavel) && despesaAlvo.user_id === userOwnerEditavel) ||
+        podeAdminGerenciarDespesa(despesaAlvo.user_id));
+
+    if (!podeEditar) {
+      setErro(getMensagemPermissaoDespesa("editar"));
       return;
     }
 
@@ -514,8 +601,13 @@ export default function DespesasPageClient() {
   async function excluirDespesa(id: number) {
     const despesaAlvo = despesas.find((despesa) => despesa.id === id);
     const userOwnerEditavel = roleUsuario === "auxiliar" ? ownerIdAuxiliar : userIdAtual;
-    if (!despesaAlvo || !userOwnerEditavel || despesaAlvo.user_id !== userOwnerEditavel) {
-      setErro("Você só pode excluir despesas próprias.");
+    const podeExcluir =
+      !!despesaAlvo &&
+      ((Boolean(userOwnerEditavel) && despesaAlvo.user_id === userOwnerEditavel) ||
+        podeAdminGerenciarDespesa(despesaAlvo.user_id));
+
+    if (!podeExcluir) {
+      setErro(getMensagemPermissaoDespesa("excluir"));
       return;
     }
 
@@ -556,39 +648,16 @@ export default function DespesasPageClient() {
 
         <section className="mt-6 rounded-[24px] border border-white/10 bg-[#0f172a]/85 p-4 shadow-[0_20px_45px_rgba(2,6,23,0.55)] md:p-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setPeriodoAberto((prev) => !prev)}
-                className="rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-3 text-sm font-semibold text-slate-100 md:px-5 md:text-base"
-              >
-                Selecionar período — {MESES.find((m) => m.valor === mesSelecionado)?.label}/
-                {anoSelecionado}
-              </button>
-
-              {periodoAberto && (
-                <div className="absolute left-0 top-full z-20 mt-2 max-h-72 w-56 overflow-y-auto rounded-2xl border border-white/15 bg-[#0b1222] p-2 shadow-xl">
-                  {periodosDisponiveis.map((periodo) => (
-                    <button
-                      key={`${periodo.mes}-${periodo.ano}`}
-                      type="button"
-                      onClick={() => {
-                        setMesSelecionado(periodo.mes);
-                        setAnoSelecionado(periodo.ano);
-                        setPeriodoAberto(false);
-                      }}
-                      className={`block w-full rounded-xl px-3 py-2 text-left text-sm ${
-                        periodo.mes === mesSelecionado && periodo.ano === anoSelecionado
-                          ? "bg-cyan-500 text-white"
-                          : "text-slate-100 hover:bg-white/10"
-                      }`}
-                    >
-                      {periodo.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <MonthYearPicker
+              mes={mesSelecionado}
+              ano={anoSelecionado}
+              onChange={(mes, ano) => {
+                setMesSelecionado(mes);
+                setAnoSelecionado(ano);
+                atualizarPeriodoNaUrl(mes, ano);
+              }}
+              variant="dark"
+            />
 
             <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300 md:text-base">
               Período selecionado:{" "}
@@ -617,6 +686,25 @@ export default function DespesasPageClient() {
             </p>
 
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[1.4fr_1fr_0.8fr_auto]">
+              {roleUsuario === "admin" && (
+                <div className="md:col-span-4">
+                  <label className="mb-2 block text-sm font-medium text-slate-300">
+                    Criar despesa para
+                  </label>
+                  <select
+                    value={userIdNovaDespesa}
+                    onChange={(e) => setUserIdNovaDespesa(e.target.value)}
+                    className="w-full rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-3 text-sm text-slate-100 md:max-w-md md:text-base"
+                  >
+                    {opcoesCriarDespesaPara.map((opcao) => (
+                      <option key={opcao.id} value={opcao.id}>
+                        {opcao.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-300">
                   Nome da despesa
@@ -786,7 +874,8 @@ export default function DespesasPageClient() {
                 const estaEditando = despesaEditandoId === despesa.id;
                 const userOwnerEditavel = roleUsuario === "auxiliar" ? ownerIdAuxiliar : userIdAtual;
                 const podeEditarExcluir =
-                  Boolean(userOwnerEditavel) && despesa.user_id === userOwnerEditavel;
+                  (Boolean(userOwnerEditavel) && despesa.user_id === userOwnerEditavel) ||
+                  podeAdminGerenciarDespesa(despesa.user_id);
 
                 return (
                   <div
@@ -853,10 +942,18 @@ export default function DespesasPageClient() {
                       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div>
                           <p className="text-lg font-semibold text-slate-900">{despesa.nome}</p>
-                          <p className="text-sm text-slate-500">
-                            Dono: {obterLabelDono(despesa.user_id)} • Competência{" "}
-                            {MESES.find((m) => m.valor === despesa.mes)?.label}/{despesa.ano}
-                          </p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                              Dono da despesa: {obterLabelDono(despesa.user_id)}
+                              {obterRoleDonoDespesa(despesa.user_id)
+                                ? ` (${obterRoleDonoDespesa(despesa.user_id)})`
+                                : ""}
+                            </span>
+                            <span className="text-sm text-slate-500">
+                              Competência {MESES.find((m) => m.valor === despesa.mes)?.label}/
+                              {despesa.ano}
+                            </span>
+                          </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4 md:flex md:items-center md:gap-8">

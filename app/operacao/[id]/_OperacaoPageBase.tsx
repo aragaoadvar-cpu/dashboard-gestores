@@ -2,8 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
+import ResponsiveMetricValue from "../../components/ResponsiveMetricValue";
 import { createClient } from "../../../lib/supabase/client";
+import { calcularResumoOperacao } from "../../../lib/financeiro/calcularResumoOperacao";
+import { buildHrefComPeriodo, getPeriodoQueryFromSearchParams } from "../../../lib/periodo";
 
 type Operacao = {
   id: number;
@@ -56,7 +59,6 @@ const MESES = [
   { valor: 11, nome: "Novembro", label: "11" },
   { valor: 12, nome: "Dezembro", label: "12" },
 ];
-
 const PERCENTUAL_REPASSE_LIQUIDO = 50;
 
 function parseNumero(valor: string): number {
@@ -136,8 +138,10 @@ function criarDiasIniciais(mes: number, ano: number): LinhaDia[] {
 
 export default function OperacaoPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const operacaoId = Number(params?.id);
   const supabase = createClient();
+  const periodoAtual = useMemo(() => getPeriodoQueryFromSearchParams(searchParams), [searchParams]);
 
   const [operacao, setOperacao] = useState<Operacao | null>(null);
 
@@ -622,45 +626,20 @@ export default function OperacaoPage() {
   }
 
   const resumo = useMemo(() => {
-    const dolar = parseNumero(cotacaoDolar);
-    const taxaFace = parseNumero(taxaFacebook);
-    const taxaNet = parseNumero(taxaNetwork);
-    const taxaImp = parseNumero(taxaImposto);
-
-    let custoTotal = 0;
-    let receitaTotalReal = 0;
-    let lucroTotal = 0;
-    let repasseTotal = 0;
-
-    for (const linha of linhas) {
-      const facebook = parseNumero(linha.face);
-      const usd = parseNumero(linha.usd);
-
-      const real = usd * dolar;
-      const txFace = facebook * (taxaFace / 100);
-      const net = real * (taxaNet / 100);
-      const imp = real * (taxaImp / 100);
-      const custo = facebook + txFace + net + imp;
-      const lucro = real - custo;
-      const rep = lucro * (percentualRepasse / 100);
-
-      custoTotal += custo;
-      receitaTotalReal += real;
-      lucroTotal += lucro;
-      repasseTotal += rep;
-    }
-
-    const roi = custoTotal > 0 ? (lucroTotal / custoTotal) * 100 : 0;
-    const repasseLiquidoTotal = repasseTotal * (PERCENTUAL_REPASSE_LIQUIDO / 100);
-
-    return {
-      custoTotal,
-      receitaTotalReal,
-      lucroTotal,
-      roi,
-      repasseTotal,
-      repasseLiquidoTotal,
-    };
+    return calcularResumoOperacao(
+      {
+        cotacao_dolar: parseNumero(cotacaoDolar),
+        taxa_facebook: parseNumero(taxaFacebook),
+        taxa_network: parseNumero(taxaNetwork),
+        taxa_imposto: parseNumero(taxaImposto),
+        repasse_percentual: percentualRepasse,
+      },
+      linhas.map((linha) => ({
+        facebook: parseNumero(linha.face),
+        usd: parseNumero(linha.usd),
+        ecpm: parseNumero(linha.ecpm),
+      }))
+    );
   }, [linhas, cotacaoDolar, taxaFacebook, taxaNetwork, taxaImposto, percentualRepasse]);
 
   const insightsOperacao = useMemo(() => {
@@ -919,7 +898,7 @@ export default function OperacaoPage() {
       <main className="min-h-screen bg-transparent p-4 md:p-6 xl:p-8">
         <section className="mx-auto max-w-7xl rounded-[24px] border border-white/10 bg-[#0f172a]/85 p-6 shadow-[0_20px_45px_rgba(2,6,23,0.55)]">
           <Link
-            href="/"
+            href={buildHrefComPeriodo("/", periodoAtual)}
             className="inline-flex rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/10"
           >
             ← Voltar para o dashboard
@@ -938,7 +917,7 @@ export default function OperacaoPage() {
       <section className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <Link
-            href="/"
+            href={buildHrefComPeriodo("/", periodoAtual)}
             className="inline-flex rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-2 text-sm font-semibold text-slate-100 shadow-sm transition hover:bg-white/10"
           >
             ← Voltar para o dashboard
@@ -954,78 +933,105 @@ export default function OperacaoPage() {
         <section
           className={`grid gap-3 ${
             modoAuxiliar
-              ? "grid-cols-1"
+              ? "grid-cols-2 lg:grid-cols-4"
               : `grid-cols-2 lg:grid-cols-3 ${operacaoEhGestor ? "xl:grid-cols-6" : "xl:grid-cols-5"}`
           }`}
         >
           {modoAuxiliar && (
-            <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-4 shadow-sm">
-              <p className="text-xs font-semibold text-slate-400 md:text-sm">ROI</p>
-              <p
-                className={`mt-2 break-words text-lg font-extrabold md:text-2xl ${getCorROI(
-                  resumo.roi
-                )}`}
-              >
-                {formatarNumero(resumo.roi)}%
-              </p>
-            </div>
+            <>
+              <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-red-500 bg-[#0f172a]/85 p-4 shadow-sm">
+                <p className="text-xs font-semibold text-slate-400 md:text-sm">Facebook</p>
+                <ResponsiveMetricValue
+                  value={`R$ ${formatarNumero(resumo.facebookTotal)}`}
+                  size="hero"
+                  className="mt-2 text-red-400"
+                />
+              </div>
+
+              <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-cyan-400 bg-[#0f172a]/85 p-4 shadow-sm">
+                <p className="text-xs font-semibold text-slate-400 md:text-sm">USD</p>
+                <ResponsiveMetricValue
+                  value={`US$ ${formatarNumero(resumo.usdTotal)}`}
+                  size="hero"
+                  className="mt-2 text-cyan-300"
+                />
+              </div>
+
+              <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-violet-400 bg-[#0f172a]/85 p-4 shadow-sm">
+                <p className="text-xs font-semibold text-slate-400 md:text-sm">CPM M&eacute;dio</p>
+                <ResponsiveMetricValue
+                  value={`US$ ${formatarNumero(resumo.ecpmMedio)}`}
+                  size="hero"
+                  className="mt-2 text-violet-300"
+                />
+              </div>
+
+              <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-4 shadow-sm">
+                <p className="text-xs font-semibold text-slate-400 md:text-sm">ROI</p>
+                <ResponsiveMetricValue
+                  value={`${formatarNumero(resumo.roi)}%`}
+                  size="hero"
+                  className={`mt-2 ${getCorROI(resumo.roi)}`}
+                />
+              </div>
+            </>
           )}
 
           {!modoAuxiliar && (
             <>
           <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-red-500 bg-[#0f172a]/85 p-4 shadow-sm">
             <p className="text-xs font-semibold text-slate-400 md:text-sm">Custo</p>
-            <p className="mt-2 break-words text-lg font-extrabold text-red-600 md:text-2xl">
-              R$ {formatarNumero(resumo.custoTotal)}
-            </p>
+            <ResponsiveMetricValue
+              value={`R$ ${formatarNumero(resumo.custoTotal)}`}
+              size="hero"
+              className="mt-2 text-red-600"
+            />
           </div>
 
           <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-yellow-400 bg-[#0f172a]/85 p-4 shadow-sm">
             <p className="text-xs font-semibold text-slate-400 md:text-sm">Receita</p>
-            <p className="mt-2 break-words text-lg font-extrabold text-blue-600 md:text-2xl">
-              R$ {formatarNumero(resumo.receitaTotalReal)}
-            </p>
+            <ResponsiveMetricValue
+              value={`R$ ${formatarNumero(resumo.receitaTotalReal)}`}
+              size="hero"
+              className="mt-2 text-blue-600"
+            />
           </div>
 
           <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-blue-500 bg-[#0f172a]/85 p-4 shadow-sm">
             <p className="text-xs font-semibold text-slate-400 md:text-sm">Lucro</p>
-            <p className="mt-2 break-words text-lg font-extrabold text-green-600 md:text-2xl">
-              R$ {formatarNumero(resumo.lucroTotal)}
-            </p>
+            <ResponsiveMetricValue
+              value={`R$ ${formatarNumero(resumo.lucroTotal)}`}
+              size="hero"
+              className="mt-2 text-green-600"
+            />
           </div>
 
           <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-4 shadow-sm">
             <p className="text-xs font-semibold text-slate-400 md:text-sm">ROI</p>
-            <p
-              className={`mt-2 break-words text-lg font-extrabold md:text-2xl ${getCorROI(
-                resumo.roi
-              )}`}
-            >
-              {formatarNumero(resumo.roi)}%
-            </p>
+            <ResponsiveMetricValue
+              value={`${formatarNumero(resumo.roi)}%`}
+              size="hero"
+              className={`mt-2 ${getCorROI(resumo.roi)}`}
+            />
           </div>
 
           <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-4 shadow-sm">
             <p className="text-xs font-semibold text-slate-400 md:text-sm">Repasse</p>
-            <p
-              className={`mt-2 break-words text-lg font-extrabold md:text-2xl ${getCorRepasse(
-                resumo.repasseTotal
-              )}`}
-            >
-              R$ {formatarNumero(resumo.repasseTotal)}
-            </p>
+            <ResponsiveMetricValue
+              value={`R$ ${formatarNumero(resumo.repasseTotal)}`}
+              size="hero"
+              className={`mt-2 ${getCorRepasse(resumo.repasseTotal)}`}
+            />
           </div>
 
           {operacaoEhGestor && (
             <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-4 shadow-sm">
               <p className="text-xs font-semibold text-slate-400 md:text-sm">Repasse Líquido</p>
-              <p
-                className={`mt-2 break-words text-lg font-extrabold md:text-2xl ${getCorRepasseLiquido(
-                  resumo.repasseLiquidoTotal
-                )}`}
-              >
-                R$ {formatarNumero(resumo.repasseLiquidoTotal)}
-              </p>
+              <ResponsiveMetricValue
+                value={`R$ ${formatarNumero(resumo.repasseLiquidoTotal)}`}
+                size="hero"
+                className={`mt-2 ${getCorRepasseLiquido(resumo.repasseLiquidoTotal)}`}
+              />
             </div>
           )}
             </>

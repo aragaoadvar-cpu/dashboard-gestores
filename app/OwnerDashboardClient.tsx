@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { OwnerDashboardData } from "@/lib/dashboard/types";
+import { buildHrefComPeriodo } from "@/lib/periodo";
+import MonthYearPicker from "./components/MonthYearPicker";
+import ResponsiveMetricValue from "./components/ResponsiveMetricValue";
 
 const MESES = [
   { valor: 1, nome: "Janeiro", label: "01" },
@@ -69,32 +72,13 @@ type Props = {
 };
 
 export default function OwnerDashboardClient({ initialData, initialMes, initialAno }: Props) {
-  const hoje = useMemo(() => new Date(), []);
   const [mesSelecionado, setMesSelecionado] = useState(initialMes);
   const [anoSelecionado, setAnoSelecionado] = useState(initialAno);
-  const [periodoAberto, setPeriodoAberto] = useState(false);
 
   const [data, setData] = useState<OwnerDashboardData>(initialData);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [erroDetalhe, setErroDetalhe] = useState("");
-
-  const periodosDisponiveis = useMemo(() => {
-    const itens: { mes: number; ano: number; label: string }[] = [];
-    const anoBase = hoje.getFullYear();
-
-    for (let ano = anoBase - 1; ano <= anoBase + 2; ano++) {
-      for (let mes = 1; mes <= 12; mes++) {
-        const mesInfo = MESES.find((item) => item.valor === mes);
-        itens.push({ mes, ano, label: `${mesInfo?.label}/${ano}` });
-      }
-    }
-
-    return itens.sort((a, b) => {
-      if (a.ano !== b.ano) return b.ano - a.ano;
-      return b.mes - a.mes;
-    });
-  }, [hoje]);
 
   const nomeMesSelecionado = useMemo(() => {
     return MESES.find((item) => item.valor === mesSelecionado)?.nome || "";
@@ -176,39 +160,15 @@ export default function OwnerDashboardClient({ initialData, initialMes, initialA
 
         <section className="mt-6 rounded-[24px] border border-white/10 bg-[#0f172a]/80 p-4 shadow-[0_20px_45px_rgba(2,6,23,0.55)] backdrop-blur md:p-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setPeriodoAberto((prev) => !prev)}
-                className="rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-3 text-sm font-semibold text-slate-100 md:px-5 md:text-base"
-              >
-                Selecionar período — {MESES.find((m) => m.valor === mesSelecionado)?.label}/
-                {anoSelecionado}
-              </button>
-
-              {periodoAberto && (
-                <div className="absolute left-0 top-full z-20 mt-2 max-h-72 w-56 overflow-y-auto rounded-2xl border border-white/15 bg-[#0b1222] p-2 shadow-xl">
-                  {periodosDisponiveis.map((periodo) => (
-                    <button
-                      key={`${periodo.mes}-${periodo.ano}`}
-                      type="button"
-                      onClick={() => {
-                        setMesSelecionado(periodo.mes);
-                        setAnoSelecionado(periodo.ano);
-                        setPeriodoAberto(false);
-                      }}
-                      className={`block w-full rounded-xl px-3 py-2 text-left text-sm ${
-                        periodo.mes === mesSelecionado && periodo.ano === anoSelecionado
-                          ? "bg-cyan-500 text-white"
-                          : "text-slate-100 hover:bg-white/10"
-                      }`}
-                    >
-                      {periodo.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <MonthYearPicker
+              mes={mesSelecionado}
+              ano={anoSelecionado}
+              onChange={(mes, ano) => {
+                setMesSelecionado(mes);
+                setAnoSelecionado(ano);
+              }}
+              variant="dark"
+            />
 
             <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300 md:text-base">
               Período selecionado:{" "}
@@ -237,27 +197,35 @@ export default function OwnerDashboardClient({ initialData, initialMes, initialA
         <section className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <div className="rounded-[20px] border border-white/10 border-l-4 border-l-red-500 bg-[#0f172a]/85 p-4 shadow-sm">
             <p className="text-xs font-semibold text-slate-400 md:text-sm">Receita Plataforma</p>
-            <p className="mt-2 break-words text-lg font-extrabold text-blue-600 md:text-2xl">
-              R$ {formatarNumero(data.resumoGlobal.receitaTotalPlataforma)}
-            </p>
+            <ResponsiveMetricValue
+              value={`R$ ${formatarNumero(data.resumoGlobal.receitaTotalPlataforma)}`}
+              size="hero"
+              className="mt-2 text-blue-600"
+            />
           </div>
           <div className="rounded-[20px] border border-white/10 border-l-4 border-l-yellow-400 bg-[#0f172a]/85 p-4 shadow-sm">
             <p className="text-xs font-semibold text-slate-400 md:text-sm">Lucro Plataforma</p>
-            <p className="mt-2 break-words text-lg font-extrabold text-green-600 md:text-2xl">
-              R$ {formatarNumero(data.resumoGlobal.lucroTotalPlataforma)}
-            </p>
+            <ResponsiveMetricValue
+              value={`R$ ${formatarNumero(data.resumoGlobal.lucroTotalPlataforma)}`}
+              size="hero"
+              className="mt-2 text-green-600"
+            />
           </div>
           <div className="rounded-[20px] border border-white/10 border-l-4 border-l-blue-500 bg-[#0f172a]/85 p-4 shadow-sm">
             <p className="text-xs font-semibold text-slate-400 md:text-sm">ROI Global</p>
-            <p className="mt-2 break-words text-lg font-extrabold text-yellow-600 md:text-2xl">
-              {formatarNumero(data.resumoGlobal.roiGlobal)}%
-            </p>
+            <ResponsiveMetricValue
+              value={`${formatarNumero(data.resumoGlobal.roiGlobal)}%`}
+              size="hero"
+              className="mt-2 text-yellow-600"
+            />
           </div>
           <div className="rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-4 shadow-sm">
             <p className="text-xs font-semibold text-slate-400 md:text-sm">Admins Ativos</p>
-            <p className="mt-2 break-words text-lg font-extrabold text-slate-100 md:text-2xl">
-              {data.resumoGlobal.totalAdminsAtivos}
-            </p>
+            <ResponsiveMetricValue
+              value={String(data.resumoGlobal.totalAdminsAtivos)}
+              size="hero"
+              className="mt-2 text-slate-100"
+            />
           </div>
         </section>
 
@@ -359,13 +327,20 @@ export default function OwnerDashboardClient({ initialData, initialMes, initialA
                   Ver detalhes do admin
                 </Link>
                 <Link
-                  href="/gestores"
+                  href={buildHrefComPeriodo("/gestores", {
+                    mes: mesSelecionado,
+                    ano: anoSelecionado,
+                  })}
                   className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-black hover:bg-gray-50"
                 >
                   Ver gestores
                 </Link>
                 <Link
-                  href={`/operacoes?owner_id=${encodeURIComponent(admin.adminId)}`}
+                  href={buildHrefComPeriodo(
+                    "/operacoes",
+                    { mes: mesSelecionado, ano: anoSelecionado },
+                    { owner_id: admin.adminId }
+                  )}
                   className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-black hover:bg-gray-50"
                 >
                   Ver operações

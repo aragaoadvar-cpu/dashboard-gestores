@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { getNomeMes } from "../../lib/periodo";
 
 type RoleUsuario = "dono" | "admin" | "gestor";
 type InviteType = "admin" | "gestor" | "auxiliar";
@@ -51,6 +52,21 @@ type OperacaoPermissaoAuxiliar = {
   permitida: boolean;
 };
 
+type ConfiguracaoComissaoAuxiliar = {
+  id?: string;
+  mes?: number;
+  ano?: number;
+  percentual_comissao: number;
+  percentual_desconto: number;
+  ativo: boolean;
+};
+
+type DespesaExtraComissao = {
+  id?: string;
+  nome: string;
+  valor: number;
+};
+
 function formatarData(dataIso: string | null) {
   if (!dataIso) return "-";
   const data = new Date(dataIso);
@@ -83,7 +99,12 @@ function getStatusLabel(status: InviteStatus) {
   return "Expirado";
 }
 
+function normalizarDecimalInput(valor: string) {
+  return valor.replace(",", ".").trim();
+}
+
 export default function ConvitesPageClient() {
+  const hoje = useMemo(() => new Date(), []);
   const [roleUsuario, setRoleUsuario] = useState<RoleUsuario>("admin");
   const [convites, setConvites] = useState<Convite[]>([]);
   const [gestoresAtivos, setGestoresAtivos] = useState<GestorAtivo[]>([]);
@@ -108,6 +129,17 @@ export default function ConvitesPageClient() {
   >([]);
   const [carregandoPermissoes, setCarregandoPermissoes] = useState(false);
   const [salvandoPermissoes, setSalvandoPermissoes] = useState(false);
+  const [auxiliarComissaoId, setAuxiliarComissaoId] = useState<string | null>(null);
+  const [auxiliarComissaoLabel, setAuxiliarComissaoLabel] = useState("");
+  const [mesComissaoSelecionado, setMesComissaoSelecionado] = useState(hoje.getMonth() + 1);
+  const [anoComissaoSelecionado, setAnoComissaoSelecionado] = useState(hoje.getFullYear());
+  const [percentualComissao, setPercentualComissao] = useState("");
+  const [percentualDesconto, setPercentualDesconto] = useState("");
+  const [carregandoComissao, setCarregandoComissao] = useState(false);
+  const [salvandoComissao, setSalvandoComissao] = useState(false);
+  const [despesasExtrasComissao, setDespesasExtrasComissao] = useState<DespesaExtraComissao[]>([]);
+  const [novaDespesaExtraNome, setNovaDespesaExtraNome] = useState("");
+  const [novaDespesaExtraValor, setNovaDespesaExtraValor] = useState("");
 
   const tipoConviteDaTela: InviteType =
     roleUsuario === "dono"
@@ -125,6 +157,11 @@ export default function ConvitesPageClient() {
         : "Convidar auxiliar",
     [tipoConviteDaTela]
   );
+
+  const anosDisponiveisComissao = useMemo(() => {
+    const anoBase = hoje.getFullYear();
+    return Array.from({ length: 4 }, (_, indice) => anoBase - 1 + indice);
+  }, [hoje]);
 
   const itensListaConvites = useMemo(() => {
     const convitesSemRevogados = convites.filter((convite) => convite.status !== "revoked");
@@ -522,6 +559,184 @@ export default function ConvitesPageClient() {
     }
   }
 
+  async function abrirAjustarComissao(auxiliarId: string, label: string) {
+    setErro("");
+    setMensagem("");
+    setAuxiliarComissaoId(auxiliarId);
+    setAuxiliarComissaoLabel(label);
+    setMesComissaoSelecionado(hoje.getMonth() + 1);
+    setAnoComissaoSelecionado(hoje.getFullYear());
+    setPercentualComissao("");
+    setPercentualDesconto("");
+    setDespesasExtrasComissao([]);
+    setNovaDespesaExtraNome("");
+    setNovaDespesaExtraValor("");
+  }
+
+  const carregarConfiguracaoComissao = useCallback(
+    async (auxiliarId: string, mes: number, ano: number) => {
+      setCarregandoComissao(true);
+      setPercentualComissao("");
+      setPercentualDesconto("");
+      setDespesasExtrasComissao([]);
+
+      try {
+        const response = await fetch(
+          `/api/auxiliares/${encodeURIComponent(auxiliarId)}/comissao?mes=${mes}&ano=${ano}`,
+          {
+            method: "GET",
+          }
+        );
+        const data = await response.json();
+
+        if (!response.ok || !data?.success) {
+          setErro(data?.error ?? "Não foi possível carregar a configuração de comissão.");
+          return;
+        }
+
+        const configuracao = (data.comissao as ConfiguracaoComissaoAuxiliar | null) ?? null;
+        setPercentualComissao(
+          configuracao ? String(configuracao.percentual_comissao ?? 0) : ""
+        );
+        setPercentualDesconto(
+          configuracao ? String(configuracao.percentual_desconto ?? 0) : ""
+        );
+        setDespesasExtrasComissao(
+          (((data.despesasExtras as Array<{ id: string; nome: string; valor: number }>) || []).map(
+            (item) => ({
+              id: item.id,
+              nome: item.nome,
+              valor: Number(item.valor ?? 0),
+            })
+          ))
+        );
+      } catch (error) {
+        setErro(`Erro ao carregar comissão: ${(error as Error).message}`);
+      } finally {
+        setCarregandoComissao(false);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!auxiliarComissaoId) return;
+    void carregarConfiguracaoComissao(
+      auxiliarComissaoId,
+      mesComissaoSelecionado,
+      anoComissaoSelecionado
+    );
+  }, [
+    auxiliarComissaoId,
+    anoComissaoSelecionado,
+    carregarConfiguracaoComissao,
+    mesComissaoSelecionado,
+  ]);
+
+  function fecharAjustarComissao() {
+    if (salvandoComissao) return;
+    setAuxiliarComissaoId(null);
+    setAuxiliarComissaoLabel("");
+    setMesComissaoSelecionado(hoje.getMonth() + 1);
+    setAnoComissaoSelecionado(hoje.getFullYear());
+    setPercentualComissao("");
+    setPercentualDesconto("");
+    setDespesasExtrasComissao([]);
+    setNovaDespesaExtraNome("");
+    setNovaDespesaExtraValor("");
+    setCarregandoComissao(false);
+  }
+
+  function formatarMoeda(valor: number) {
+    return valor.toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    });
+  }
+
+  function adicionarDespesaExtra() {
+    const nome = novaDespesaExtraNome.trim();
+    const valor = Number(normalizarDecimalInput(novaDespesaExtraValor || "0"));
+
+    if (!nome) {
+      setErro("Informe o nome da despesa extra.");
+      return;
+    }
+
+    if (!Number.isFinite(valor)) {
+      setErro("Informe um valor válido para a despesa extra.");
+      return;
+    }
+
+    setErro("");
+    setDespesasExtrasComissao((atual) => [
+      ...atual,
+      {
+        nome,
+        valor,
+      },
+    ]);
+    setNovaDespesaExtraNome("");
+    setNovaDespesaExtraValor("");
+  }
+
+  function removerDespesaExtra(indice: number) {
+    setDespesasExtrasComissao((atual) => atual.filter((_, index) => index !== indice));
+  }
+
+  async function salvarComissaoAuxiliar() {
+    if (!auxiliarComissaoId) return;
+
+    setErro("");
+    setMensagem("");
+
+    const percentualComissaoNormalizado = normalizarDecimalInput(percentualComissao);
+    const percentualDescontoNormalizado = normalizarDecimalInput(percentualDesconto);
+
+    const percentualComissaoNumero = Number(percentualComissaoNormalizado || "0");
+    const percentualDescontoNumero = Number(percentualDescontoNormalizado || "0");
+
+    if (
+      Number.isNaN(percentualComissaoNumero) ||
+      Number.isNaN(percentualDescontoNumero)
+    ) {
+      setErro("Preencha comissão e desconto com números válidos.");
+      return;
+    }
+
+    setSalvandoComissao(true);
+
+    try {
+      const response = await fetch(`/api/auxiliares/${encodeURIComponent(auxiliarComissaoId)}/comissao`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          mes: mesComissaoSelecionado,
+          ano: anoComissaoSelecionado,
+          percentual_comissao: percentualComissaoNumero,
+          percentual_desconto: percentualDescontoNumero,
+          despesasExtras: despesasExtrasComissao,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data?.success) {
+        setErro(data?.error ?? "Não foi possível salvar a comissão do auxiliar.");
+        setSalvandoComissao(false);
+        return;
+      }
+
+      setMensagem("Comissão do auxiliar atualizada com sucesso.");
+      fecharAjustarComissao();
+    } catch (error) {
+      setErro(`Erro ao salvar comissão: ${(error as Error).message}`);
+    } finally {
+      setSalvandoComissao(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-transparent p-4 md:p-6 xl:p-8">
       <section className="mx-auto max-w-7xl">
@@ -727,18 +942,32 @@ export default function ConvitesPageClient() {
                   {podeInativar && (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {podeInativarAuxiliar && userVinculadoId && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            abrirGerenciarOperacoes(
-                              userVinculadoId as string,
-                              convite.invited_email
-                            )
-                          }
-                          className="rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100"
-                        >
-                          Gerenciar operações
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              abrirGerenciarOperacoes(
+                                userVinculadoId as string,
+                                convite.invited_email
+                              )
+                            }
+                            className="rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100"
+                          >
+                            Gerenciar operações
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              abrirAjustarComissao(
+                                userVinculadoId as string,
+                                convite.invited_email
+                              )
+                            }
+                            className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                          >
+                            Ajustar comissão
+                          </button>
+                        </>
                       )}
                       <button
                         type="button"
@@ -835,6 +1064,182 @@ export default function ConvitesPageClient() {
                 className="rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
               >
                 {salvandoPermissoes ? "Salvando..." : "Salvar permissões"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {auxiliarComissaoId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
+          <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-[#0f172a] p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-extrabold text-slate-100 md:text-xl">
+                  Ajustar comissão do auxiliar
+                </h3>
+                <p className="mt-1 text-sm text-slate-400">{auxiliarComissaoLabel}</p>
+              </div>
+
+              <button
+                type="button"
+                onClick={fecharAjustarComissao}
+                disabled={salvandoComissao}
+                className="rounded-xl border border-white/20 bg-[#0b1222] px-3 py-1 text-sm font-semibold text-slate-100 disabled:opacity-60"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-white/10 bg-[#0b1222]/70 p-4">
+              {carregandoComissao ? (
+                <p className="text-sm text-slate-300">Carregando configuração...</p>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="block">
+                      <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                        Ano
+                      </span>
+                      <select
+                        value={anoComissaoSelecionado}
+                        onChange={(e) => setAnoComissaoSelecionado(Number(e.target.value))}
+                        className="mt-2 w-full rounded-2xl border border-white/20 bg-[#0f172a] px-4 py-3 text-slate-100"
+                      >
+                        {anosDisponiveisComissao.map((ano) => (
+                          <option key={ano} value={ano}>
+                            {ano}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="block">
+                      <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                        Mês
+                      </span>
+                      <select
+                        value={mesComissaoSelecionado}
+                        onChange={(e) => setMesComissaoSelecionado(Number(e.target.value))}
+                        className="mt-2 w-full rounded-2xl border border-white/20 bg-[#0f172a] px-4 py-3 text-slate-100"
+                      >
+                        {Array.from({ length: 12 }, (_, index) => index + 1).map((mes) => (
+                          <option key={mes} value={mes}>
+                            {String(mes).padStart(2, "0")} - {getNomeMes(mes)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="block">
+                      <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                        Percentual de comissão
+                      </span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={percentualComissao}
+                        onChange={(e) => setPercentualComissao(e.target.value)}
+                        placeholder="0,00"
+                        className="mt-2 w-full rounded-2xl border border-white/20 bg-[#0f172a] px-4 py-3 text-slate-100"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                        Percentual de desconto
+                      </span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={percentualDesconto}
+                        onChange={(e) => setPercentualDesconto(e.target.value)}
+                        placeholder="0,00"
+                        className="mt-2 w-full rounded-2xl border border-white/20 bg-[#0f172a] px-4 py-3 text-slate-100"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-[#0f172a]/80 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                      Add Despesa
+                    </p>
+
+                    <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_auto]">
+                      <input
+                        type="text"
+                        value={novaDespesaExtraNome}
+                        onChange={(e) => setNovaDespesaExtraNome(e.target.value)}
+                        placeholder="Nome da despesa"
+                        className="w-full rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-3 text-slate-100"
+                      />
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={novaDespesaExtraValor}
+                        onChange={(e) => setNovaDespesaExtraValor(e.target.value)}
+                        placeholder="100,00"
+                        className="w-full rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-3 text-slate-100"
+                      />
+                      <button
+                        type="button"
+                        onClick={adicionarDespesaExtra}
+                        className="rounded-2xl border border-emerald-300/40 bg-emerald-500/10 px-4 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/20"
+                      >
+                        Adicionar despesa
+                      </button>
+                    </div>
+
+                    <div className="mt-4 space-y-2">
+                      {despesasExtrasComissao.length === 0 && (
+                        <p className="text-sm text-slate-300">
+                          Nenhuma despesa extra adicionada.
+                        </p>
+                      )}
+
+                      {despesasExtrasComissao.map((despesa, index) => (
+                        <div
+                          key={`${despesa.id ?? "nova"}-${index}`}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-[#111827]/80 px-3 py-3"
+                        >
+                          <div>
+                            <p className="text-sm font-semibold text-slate-100">{despesa.nome}</p>
+                            <p className="text-xs text-slate-400">{formatarMoeda(despesa.valor)}</p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => removerDespesaExtra(index)}
+                            className="rounded-xl border border-red-300/40 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-100 transition hover:bg-red-500/20"
+                          >
+                            Remover
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={fecharAjustarComissao}
+                disabled={salvandoComissao}
+                className="rounded-xl border border-white/20 bg-transparent px-4 py-2 text-sm font-semibold text-slate-100 disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={salvarComissaoAuxiliar}
+                disabled={salvandoComissao || carregandoComissao}
+                className="rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {salvandoComissao ? "Salvando..." : "Salvar"}
               </button>
             </div>
           </div>

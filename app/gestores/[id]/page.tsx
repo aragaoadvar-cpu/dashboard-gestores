@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import GestorDetalhePageClient from "./GestorDetalhePageClient";
 import { getOwnerGestorDetail } from "@/lib/dashboard/getOwnerGestorDetail";
+import { buildHrefComPeriodo } from "@/lib/periodo";
+import ResponsiveMetricValue from "@/app/components/ResponsiveMetricValue";
 
 type PageProps = {
   params: Promise<{
@@ -176,7 +178,11 @@ export default async function Page({ params, searchParams }: PageProps) {
               Voltar para o admin
             </Link>
             <Link
-              href={`/operacoes?owner_id=${encodeURIComponent(detalhe.gestorId)}`}
+              href={buildHrefComPeriodo(
+                "/operacoes",
+                { mes: detalhe.periodo.mes, ano: detalhe.periodo.ano },
+                { owner_id: detalhe.gestorId }
+              )}
               className="rounded-xl border border-white/20 bg-[#0b1222] px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-white/10"
             >
               Ver operações do gestor
@@ -218,31 +224,38 @@ export default async function Page({ params, searchParams }: PageProps) {
             <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-5">
             <div className="rounded-[20px] border-l-4 border-red-500 card-white-modern p-4 shadow-sm">
               <p className="text-xs font-semibold text-gray-500">Operações no período</p>
-              <p className="mt-2 text-lg font-extrabold text-black">{detalhe.totais.totalOperacoes}</p>
+              <ResponsiveMetricValue
+                value={String(detalhe.totais.totalOperacoes)}
+                className="mt-2 text-black"
+              />
             </div>
             <div className="rounded-[20px] border-l-4 border-yellow-400 card-white-modern p-4 shadow-sm">
               <p className="text-xs font-semibold text-gray-500">Receita total</p>
-              <p className="mt-2 text-lg font-extrabold text-blue-600">
-                R$ {formatarNumero(detalhe.totais.receita)}
-              </p>
+              <ResponsiveMetricValue
+                value={`R$ ${formatarNumero(detalhe.totais.receita)}`}
+                className="mt-2 text-blue-600"
+              />
             </div>
             <div className="rounded-[20px] border-l-4 border-blue-500 card-white-modern p-4 shadow-sm">
               <p className="text-xs font-semibold text-gray-500">Custo total</p>
-              <p className="mt-2 text-lg font-extrabold text-red-600">
-                R$ {formatarNumero(detalhe.totais.custo)}
-              </p>
+              <ResponsiveMetricValue
+                value={`R$ ${formatarNumero(detalhe.totais.custo)}`}
+                className="mt-2 text-red-600"
+              />
             </div>
             <div className="rounded-[20px] border-l-4 border-green-500 card-white-modern p-4 shadow-sm">
               <p className="text-xs font-semibold text-gray-500">Lucro total</p>
-              <p className={`mt-2 text-lg font-extrabold ${getLucroClass(detalhe.totais.lucro)}`}>
-                R$ {formatarNumero(detalhe.totais.lucro)}
-              </p>
+              <ResponsiveMetricValue
+                value={`R$ ${formatarNumero(detalhe.totais.lucro)}`}
+                className={`mt-2 ${getLucroClass(detalhe.totais.lucro)}`}
+              />
             </div>
             <div className="rounded-[20px] border-l-4 border-green-500 card-white-modern p-4 shadow-sm">
               <p className="text-xs font-semibold text-gray-500">ROI do período</p>
-              <p className={`mt-2 text-lg font-extrabold ${getRoiClass(detalhe.totais.roi)}`}>
-                {formatarNumero(detalhe.totais.roi)}%
-              </p>
+              <ResponsiveMetricValue
+                value={`${formatarNumero(detalhe.totais.roi)}%`}
+                className={`mt-2 ${getRoiClass(detalhe.totais.roi)}`}
+              />
             </div>
             </div>
           </section>

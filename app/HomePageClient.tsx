@@ -1,8 +1,29 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  calcularBaseComissaoAuxiliarConvidador,
+  calcularTotalComissoesAuxiliares,
+  type AuxiliarComissaoAtiva,
+} from "../lib/comissao/calcularTotalComissoesAuxiliares";
 import { createClient } from "../lib/supabase/client";
+import {
+  aplicarOverrideAdminNaOperacaoDashboard,
+  calcularResumoDashboardOperacao,
+  getRepassePercentualDashboardComOverride,
+} from "../lib/dashboard/calcularResumoDashboardOperacao";
+import {
+  formatarDiaMesAno,
+  formatarMesAnoCurto,
+  getDiasNoMes,
+  getMesAnoFromSearchParams,
+  getNomeMes,
+  getPartesDaData,
+  limitarDiaAoMes,
+} from "../lib/periodo";
+import ResponsiveMetricValue from "./components/ResponsiveMetricValue";
 import UserAvatar from "./components/UserAvatar";
 
 type Operacao = {
@@ -73,25 +94,11 @@ type AdminGestorTaxas = {
   repasse_percentual_admin: number | null;
 };
 
-type ModoTemporalDashboard = "periodo" | "ontem" | "hoje";
-
-const MESES = [
-  { valor: 1, nome: "Janeiro", label: "01" },
-  { valor: 2, nome: "Fevereiro", label: "02" },
-  { valor: 3, nome: "Março", label: "03" },
-  { valor: 4, nome: "Abril", label: "04" },
-  { valor: 5, nome: "Maio", label: "05" },
-  { valor: 6, nome: "Junho", label: "06" },
-  { valor: 7, nome: "Julho", label: "07" },
-  { valor: 8, nome: "Agosto", label: "08" },
-  { valor: 9, nome: "Setembro", label: "09" },
-  { valor: 10, nome: "Outubro", label: "10" },
-  { valor: 11, nome: "Novembro", label: "11" },
-  { valor: 12, nome: "Dezembro", label: "12" },
-];
-
-const PERCENTUAL_REPASSE_PADRAO = 20;
-const PERCENTUAL_REPASSE_LIQUIDO = 50;
+type ModoTemporalDashboard = "periodo" | "ontem" | "hoje" | "calendario";
+type ComissaoAuxiliarDashboard = {
+  temConfiguracao: boolean;
+  comissaoAtual: number | null;
+};
 
 const FRASES_ROI_ALTO = [
   "Excelente trabalho. ROI acima de 60% não é sorte, é controle, inteligência e execução de elite.",
@@ -137,97 +144,46 @@ function getFraseAleatoria(frases: string[], seed: number) {
   return frases[indice];
 }
 
-function calcularResumoPorLancamentos(
-  operacao: Operacao,
-  lancamentos: Lancamento[],
-  repassePercentualOverride: number | null = null
-): ResumoOperacao {
-  const cotacaoDolar = Number(operacao.cotacao_dolar ?? 5.1);
-  const taxaFacebook = Number(operacao.taxa_facebook ?? 13.85);
-  const taxaNetwork = Number(operacao.taxa_network ?? 6.5);
-  const taxaImposto = Number(operacao.taxa_imposto ?? 7);
+function formatarInputData(ano: number, mes: number, dia: number) {
+  return `${ano}-${String(mes).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
+}
 
-  let custo = 0;
-  let receita = 0;
-  let lucro = 0;
-
-  for (const lancamento of lancamentos) {
-    const facebook = Number(lancamento.facebook ?? 0);
-    const usd = Number(lancamento.usd ?? 0);
-
-    const real = usd * cotacaoDolar;
-    const txFace = facebook * (taxaFacebook / 100);
-    const net = real * (taxaNetwork / 100);
-    const imp = real * (taxaImposto / 100);
-    const custoLinha = facebook + txFace + net + imp;
-    const lucroLinha = real - custoLinha;
-
-    custo += custoLinha;
-    receita += real;
-    lucro += lucroLinha;
-  }
-
-  const roi = custo > 0 ? (lucro / custo) * 100 : 0;
-  const repassePercentualFinal =
-    repassePercentualOverride === null
-      ? Number(operacao.repasse_percentual ?? PERCENTUAL_REPASSE_PADRAO)
-      : repassePercentualOverride;
-  const repasse = lucro * (repassePercentualFinal / 100);
-  const repasseLiquido = repasse * (PERCENTUAL_REPASSE_LIQUIDO / 100);
-
+function parseInputData(valor: string) {
+  const [ano, mes, dia] = valor.split("-").map(Number);
   return {
-    custo,
-    receita,
-    lucro,
-    roi,
-    repasse,
-    repasseLiquido,
+    ano: Number.isFinite(ano) ? ano : 0,
+    mes: Number.isFinite(mes) ? mes : 0,
+    dia: Number.isFinite(dia) ? dia : 0,
   };
 }
 
-function aplicarOverrideAdminNaOperacao(
-  operacao: Operacao,
-  override: AdminGestorTaxas | null
-): Operacao {
-  if (!override) return operacao;
-
-  return {
-    ...operacao,
-    cotacao_dolar:
-      override.cotacao_dolar_admin === null
-        ? operacao.cotacao_dolar
-        : override.cotacao_dolar_admin,
-    taxa_facebook:
-      override.taxa_facebook_admin === null
-        ? operacao.taxa_facebook
-        : override.taxa_facebook_admin,
-    taxa_network:
-      override.taxa_network_admin === null
-        ? operacao.taxa_network
-        : override.taxa_network_admin,
-    taxa_imposto:
-      override.taxa_imposto_admin === null
-        ? operacao.taxa_imposto
-        : override.taxa_imposto_admin,
-  };
-}
-
-function getRepassePercentualComOverride(
-  operacao: Operacao,
-  override: AdminGestorTaxas | null
-): number | null {
-  if (!override || override.repasse_percentual_admin === null) {
-    return Number(operacao.repasse_percentual ?? PERCENTUAL_REPASSE_PADRAO);
-  }
-  return Number(override.repasse_percentual_admin);
+function isModoTemporalDashboard(valor: string | null): valor is ModoTemporalDashboard {
+  return valor === "periodo" || valor === "hoje" || valor === "ontem" || valor === "calendario";
 }
 
 export default function HomePageClient() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const supabase = createClient();
-
-  const hoje = new Date();
-  const [mesSelecionado, setMesSelecionado] = useState(hoje.getMonth() + 1);
-  const [anoSelecionado, setAnoSelecionado] = useState(hoje.getFullYear());
+  const hoje = useMemo(() => new Date(), []);
+  const periodoInicial = useMemo(() => getMesAnoFromSearchParams(searchParams, hoje), [searchParams, hoje]);
+  const modoTemporalInicial = useMemo<ModoTemporalDashboard>(() => {
+    const modoParam = searchParams.get("modo");
+    return isModoTemporalDashboard(modoParam) ? modoParam : "periodo";
+  }, [searchParams]);
+  const dataPadraoHoje = useMemo(
+    () => formatarInputData(hoje.getFullYear(), hoje.getMonth() + 1, hoje.getDate()),
+    [hoje]
+  );
+  const [mesSelecionado, setMesSelecionado] = useState(periodoInicial.mes);
+  const [anoSelecionado, setAnoSelecionado] = useState(periodoInicial.ano);
+  const [dataInicioSelecionada, setDataInicioSelecionada] = useState(
+    searchParams.get("inicio") || dataPadraoHoje
+  );
+  const [dataFimSelecionada, setDataFimSelecionada] = useState(
+    searchParams.get("fim") || dataPadraoHoje
+  );
 
   const [operacoes, setOperacoes] = useState<Operacao[]>([]);
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
@@ -246,17 +202,75 @@ export default function HomePageClient() {
   const [taxasAdminPorGestorId, setTaxasAdminPorGestorId] = useState<
     Record<string, AdminGestorTaxas>
   >({});
-  const [kpisAbertos, setKpisAbertos] = useState(false);
-  const [periodoAberto, setPeriodoAberto] = useState(false);
-  const [modoTemporal, setModoTemporal] = useState<ModoTemporalDashboard>("periodo");
+  const [comissoesAuxiliaresAtivas, setComissoesAuxiliaresAtivas] = useState<AuxiliarComissaoAtiva[]>(
+    []
+  );
+  const [comissaoAuxiliarAtual, setComissaoAuxiliarAtual] = useState<ComissaoAuxiliarDashboard | null>(
+    null
+  );
+  const [kpisAbertos, setKpisAbertos] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem("home_kpis_abertos") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [modoTemporal, setModoTemporal] = useState<ModoTemporalDashboard>(modoTemporalInicial);
+  const [seletorTemporalAberto, setSeletorTemporalAberto] = useState(false);
+  const [rankingAberto, setRankingAberto] = useState(false);
 
   useEffect(() => {
-    try {
-      const valorSalvo = window.localStorage.getItem("home_kpis_abertos");
-      if (valorSalvo === "1") setKpisAbertos(true);
-      if (valorSalvo === "0") setKpisAbertos(false);
-    } catch {}
-  }, []);
+    setMesSelecionado(periodoInicial.mes);
+    setAnoSelecionado(periodoInicial.ano);
+  }, [periodoInicial]);
+
+  useEffect(() => {
+    setModoTemporal(modoTemporalInicial);
+    setDataInicioSelecionada(searchParams.get("inicio") || dataPadraoHoje);
+    setDataFimSelecionada(searchParams.get("fim") || dataPadraoHoje);
+  }, [modoTemporalInicial, searchParams, dataPadraoHoje]);
+
+  const atualizarContextoTemporalNaUrl = useCallback(
+    (proximo: {
+      mes?: number;
+      ano?: number;
+      modo?: ModoTemporalDashboard;
+      inicio?: string;
+      fim?: string;
+    }) => {
+      const params = new URLSearchParams(searchParams.toString());
+      const mes = proximo.mes ?? mesSelecionado;
+      const ano = proximo.ano ?? anoSelecionado;
+      const modo = proximo.modo ?? modoTemporal;
+      const inicio = proximo.inicio ?? dataInicioSelecionada;
+      const fim = proximo.fim ?? dataFimSelecionada;
+
+      params.set("mes", String(mes));
+      params.set("ano", String(ano));
+      params.set("modo", modo);
+
+      if (modo === "calendario") {
+        params.set("inicio", inicio);
+        params.set("fim", fim);
+      } else {
+        params.delete("inicio");
+        params.delete("fim");
+      }
+
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [
+      anoSelecionado,
+      dataFimSelecionada,
+      dataInicioSelecionada,
+      mesSelecionado,
+      modoTemporal,
+      pathname,
+      router,
+      searchParams,
+    ]
+  );
 
   useEffect(() => {
     try {
@@ -264,81 +278,182 @@ export default function HomePageClient() {
     } catch {}
   }, [kpisAbertos]);
 
-  const periodosDisponiveis = useMemo(() => {
-    const itens: { mes: number; ano: number; label: string }[] = [];
+  const anosDisponiveis = useMemo(() => {
     const anoBase = hoje.getFullYear();
-
-    for (let ano = anoBase - 1; ano <= anoBase + 2; ano++) {
-      for (let mes = 1; mes <= 12; mes++) {
-        const mesInfo = MESES.find((item) => item.valor === mes);
-        itens.push({
-          mes,
-          ano,
-          label: `${mesInfo?.label}/${ano}`,
-        });
-      }
-    }
-
-    return itens.sort((a, b) => {
-      if (a.ano !== b.ano) return b.ano - a.ano;
-      return b.mes - a.mes;
-    });
+    return Array.from({ length: 4 }, (_, indice) => anoBase - 1 + indice);
   }, [hoje]);
+  const dataMinimaMesSelecionado = useMemo(
+    () => formatarInputData(anoSelecionado, mesSelecionado, 1),
+    [anoSelecionado, mesSelecionado]
+  );
+  const dataMaximaMesSelecionado = useMemo(
+    () => formatarInputData(anoSelecionado, mesSelecionado, getDiasNoMes(mesSelecionado, anoSelecionado)),
+    [anoSelecionado, mesSelecionado]
+  );
 
-  const nomeMesSelecionado = useMemo(() => {
-    return MESES.find((mes) => mes.valor === mesSelecionado)?.nome || "";
-  }, [mesSelecionado]);
+  useEffect(() => {
+    const diaInicioAtual = limitarDiaAoMes(
+      parseInputData(dataInicioSelecionada).dia || 1,
+      mesSelecionado,
+      anoSelecionado
+    );
+    const diaFimAtual = limitarDiaAoMes(
+      parseInputData(dataFimSelecionada).dia || diaInicioAtual,
+      mesSelecionado,
+      anoSelecionado
+    );
+
+    const timeoutId = window.setTimeout(() => {
+      setDataInicioSelecionada(formatarInputData(anoSelecionado, mesSelecionado, diaInicioAtual));
+      setDataFimSelecionada(
+        formatarInputData(anoSelecionado, mesSelecionado, Math.max(diaInicioAtual, diaFimAtual))
+      );
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [anoSelecionado, mesSelecionado, dataInicioSelecionada, dataFimSelecionada]);
 
   const contextoTemporal = useMemo(() => {
     if (modoTemporal === "periodo") {
       return {
-        diaAlvo: null as number | null,
-        foraDoMesAtual: false,
-      };
-    }
-
-    const agora = new Date();
-    const mesAtual = agora.getMonth() + 1;
-    const anoAtual = agora.getFullYear();
-    const periodoSelecionadoEhAtual =
-      mesSelecionado === mesAtual && anoSelecionado === anoAtual;
-
-    if (!periodoSelecionadoEhAtual) {
-      return {
-        diaAlvo: null as number | null,
-        foraDoMesAtual: true,
+        mesConsulta: mesSelecionado,
+        anoConsulta: anoSelecionado,
+        diaInicial: 1,
+        diaFinal: getDiasNoMes(mesSelecionado, anoSelecionado),
+        usaDespesas: true,
+        labelResumo: `Mês inteiro · ${formatarMesAnoCurto(mesSelecionado, anoSelecionado)}`,
+        labelBotao: `Mês: ${formatarMesAnoCurto(mesSelecionado, anoSelecionado)}`,
       };
     }
 
     if (modoTemporal === "hoje") {
+      const partesHoje = getPartesDaData(new Date());
       return {
-        diaAlvo: agora.getDate(),
-        foraDoMesAtual: false,
+        mesConsulta: partesHoje.mes,
+        anoConsulta: partesHoje.ano,
+        diaInicial: partesHoje.dia,
+        diaFinal: partesHoje.dia,
+        usaDespesas: false,
+        labelResumo: `Hoje · ${formatarDiaMesAno(partesHoje.dia, partesHoje.mes, partesHoje.ano)}`,
+        labelBotao: "Hoje",
       };
     }
 
-    const ontem = new Date(agora);
-    ontem.setDate(agora.getDate() - 1);
-    const ontemEstaNoMesSelecionado =
-      ontem.getMonth() + 1 === mesSelecionado && ontem.getFullYear() === anoSelecionado;
+    if (modoTemporal === "ontem") {
+      const ontem = new Date();
+      ontem.setDate(ontem.getDate() - 1);
+      const partesOntem = getPartesDaData(ontem);
+      return {
+        mesConsulta: partesOntem.mes,
+        anoConsulta: partesOntem.ano,
+        diaInicial: partesOntem.dia,
+        diaFinal: partesOntem.dia,
+        usaDespesas: false,
+        labelResumo: `Ontem · ${formatarDiaMesAno(partesOntem.dia, partesOntem.mes, partesOntem.ano)}`,
+        labelBotao: "Ontem",
+      };
+    }
+
+    const partesInicio = parseInputData(dataInicioSelecionada);
+    const partesFim = parseInputData(dataFimSelecionada);
+    const diaInicialNormalizado = limitarDiaAoMes(
+      partesInicio.dia || 1,
+      mesSelecionado,
+      anoSelecionado
+    );
+    const diaFinalNormalizado = limitarDiaAoMes(
+      Math.max(partesFim.dia || diaInicialNormalizado, diaInicialNormalizado),
+      mesSelecionado,
+      anoSelecionado
+    );
+    const ehDiaUnico = diaInicialNormalizado === diaFinalNormalizado;
 
     return {
-      diaAlvo: ontemEstaNoMesSelecionado ? ontem.getDate() : null,
-      foraDoMesAtual: false,
+      mesConsulta: mesSelecionado,
+      anoConsulta: anoSelecionado,
+      diaInicial: diaInicialNormalizado,
+      diaFinal: diaFinalNormalizado,
+      usaDespesas: false,
+      labelResumo: ehDiaUnico
+        ? `Dia · ${formatarDiaMesAno(diaInicialNormalizado, mesSelecionado, anoSelecionado)}`
+        : `Período · ${formatarDiaMesAno(
+            diaInicialNormalizado,
+            mesSelecionado,
+            anoSelecionado
+          )} a ${formatarDiaMesAno(diaFinalNormalizado, mesSelecionado, anoSelecionado)}`,
+      labelBotao: ehDiaUnico
+        ? `Dia: ${formatarDiaMesAno(diaInicialNormalizado, mesSelecionado, anoSelecionado)}`
+        : `${String(diaInicialNormalizado).padStart(2, "0")}/${String(
+            mesSelecionado
+          ).padStart(2, "0")} até ${String(diaFinalNormalizado).padStart(2, "0")}/${String(
+            mesSelecionado
+          ).padStart(2, "0")}`,
     };
-  }, [modoTemporal, mesSelecionado, anoSelecionado]);
+  }, [
+    modoTemporal,
+    mesSelecionado,
+    anoSelecionado,
+    dataInicioSelecionada,
+    dataFimSelecionada,
+  ]);
+
+  useEffect(() => {
+    if (roleUsuario !== "auxiliar" || !userIdAtual) {
+      return;
+    }
+
+    let cancelado = false;
+
+    async function carregarComissaoAuxiliar() {
+      try {
+        const response = await fetch(
+          `/api/dashboard/auxiliar-comissao?mes=${contextoTemporal.mesConsulta}&ano=${contextoTemporal.anoConsulta}`,
+          { method: "GET" }
+        );
+        const data = await response.json();
+
+        if (!response.ok || !data?.success) {
+          if (!cancelado) {
+            setComissaoAuxiliarAtual(null);
+          }
+          return;
+        }
+
+        if (!cancelado) {
+          setComissaoAuxiliarAtual(
+            {
+              temConfiguracao: Boolean(data.temConfiguracao),
+              comissaoAtual:
+                typeof data.comissaoAtual === "number" ? data.comissaoAtual : null,
+            }
+          );
+        }
+      } catch {
+        if (!cancelado) {
+          setComissaoAuxiliarAtual(null);
+        }
+      }
+    }
+
+    void carregarComissaoAuxiliar();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [roleUsuario, userIdAtual, contextoTemporal.mesConsulta, contextoTemporal.anoConsulta]);
 
   const lancamentosFiltradosTemporal = useMemo(() => {
     if (modoTemporal === "periodo") return lancamentos;
-    if (contextoTemporal.diaAlvo === null) return [];
-    return lancamentos.filter((item) => item.dia === contextoTemporal.diaAlvo);
-  }, [lancamentos, modoTemporal, contextoTemporal.diaAlvo]);
+    return lancamentos.filter(
+      (item) => item.dia >= contextoTemporal.diaInicial && item.dia <= contextoTemporal.diaFinal
+    );
+  }, [lancamentos, modoTemporal, contextoTemporal.diaInicial, contextoTemporal.diaFinal]);
 
   const despesasAplicadasTemporal = useMemo(() => {
-    return modoTemporal === "periodo" ? despesas : [];
-  }, [modoTemporal, despesas]);
+    return contextoTemporal.usaDespesas ? despesas : [];
+  }, [contextoTemporal.usaDespesas, despesas]);
 
-  async function carregarDados() {
+  const carregarDados = useCallback(async () => {
     setCarregando(true);
     setErro("");
     setMensagem("");
@@ -352,8 +467,10 @@ export default function HomePageClient() {
       setRoleUsuario("gestor");
       setUserIdAtual("");
       setOwnerIdAuxiliar(null);
+      setComissaoAuxiliarAtual(null);
       setGestoresVinculadosIds([]);
       setAdminIdsSistema([]);
+      setComissoesAuxiliaresAtivas([]);
       setPerfisUsuarioPorId({});
       setTaxasAdminPorGestorId({});
       setErro("Usuário não autenticado.");
@@ -388,8 +505,9 @@ export default function HomePageClient() {
         ? "auxiliar"
         : "gestor";
 
-    if (roleUsuario !== roleAtual) {
-      setRoleUsuario(roleAtual);
+    setRoleUsuario(roleAtual);
+    if (roleAtual !== "auxiliar") {
+      setComissaoAuxiliarAtual(null);
     }
 
     let gestoresDoAdmin: string[] = [];
@@ -495,6 +613,72 @@ export default function HomePageClient() {
     } else {
       setTaxasAdminPorGestorId({});
     }
+
+    if (roleAtual === "admin" || roleAtual === "gestor") {
+      const { data: comissoesData, error: comissoesError } = await supabase
+        .from("auxiliar_comissoes")
+        .select("id, auxiliar_user_id, percentual_comissao, percentual_desconto")
+        .eq("convidador_user_id", user.id)
+        .eq("ativo", true)
+        .eq("mes", contextoTemporal.mesConsulta)
+        .eq("ano", contextoTemporal.anoConsulta)
+        .not("percentual_comissao", "is", null);
+
+      if (comissoesError) {
+        setErro(`Erro ao carregar comissões dos auxiliares: ${JSON.stringify(comissoesError)}`);
+        setCarregando(false);
+        return;
+      }
+
+      const comissoesLista = (comissoesData as AuxiliarComissaoAtiva[]) || [];
+
+      if (comissoesLista.length > 0) {
+        const { data: despesasExtrasData, error: despesasExtrasError } = await supabase
+          .from("auxiliar_comissao_despesas_extras")
+          .select("auxiliar_comissao_id, valor")
+          .in(
+            "auxiliar_comissao_id",
+            comissoesLista.map((item) => item.id)
+          )
+          .eq("mes", contextoTemporal.mesConsulta)
+          .eq("ano", contextoTemporal.anoConsulta);
+
+        if (despesasExtrasError) {
+          setErro(
+            `Erro ao carregar despesas extras das comissões: ${JSON.stringify(
+              despesasExtrasError
+            )}`
+          );
+          setCarregando(false);
+          return;
+        }
+
+        const totaisPorComissaoId = new Map<string, number>();
+        for (const despesa of
+          ((despesasExtrasData as Array<{
+            auxiliar_comissao_id: string | null;
+            valor: number | null;
+          }>) || [])) {
+          if (!despesa.auxiliar_comissao_id) continue;
+          totaisPorComissaoId.set(
+            despesa.auxiliar_comissao_id,
+            (totaisPorComissaoId.get(despesa.auxiliar_comissao_id) || 0) + Number(despesa.valor ?? 0)
+          );
+        }
+
+        setComissoesAuxiliaresAtivas(
+          comissoesLista.map((comissao) => ({
+            ...comissao,
+            total_despesas_extras: totaisPorComissaoId.get(comissao.id) || 0,
+          }))
+        );
+      } else {
+        setComissoesAuxiliaresAtivas([]);
+      }
+    } else {
+      setComissoesAuxiliaresAtivas([]);
+    }
+
     setGestoresVinculadosIds(gestoresDoAdmin);
     setAdminIdsSistema(adminsDoSistema);
     setOwnerIdAuxiliar(ownerDoAuxiliar);
@@ -512,8 +696,8 @@ export default function HomePageClient() {
             "id, nome, mes, ano, user_id, cotacao_dolar, taxa_facebook, taxa_network, taxa_imposto, repasse_percentual"
           )
           .in("id", operacaoIdsPermitidasAuxiliar)
-          .eq("mes", mesSelecionado)
-          .eq("ano", anoSelecionado)
+          .eq("mes", contextoTemporal.mesConsulta)
+          .eq("ano", contextoTemporal.anoConsulta)
           .order("id", { ascending: true });
 
         operacoesData = (resultado.data as Operacao[] | null) ?? null;
@@ -525,8 +709,8 @@ export default function HomePageClient() {
         .select(
           "id, nome, mes, ano, user_id, cotacao_dolar, taxa_facebook, taxa_network, taxa_imposto, repasse_percentual"
         )
-        .eq("mes", mesSelecionado)
-        .eq("ano", anoSelecionado)
+        .eq("mes", contextoTemporal.mesConsulta)
+        .eq("ano", contextoTemporal.anoConsulta)
         .order("id", { ascending: true });
 
       if (roleAtual === "gestor") {
@@ -572,8 +756,8 @@ export default function HomePageClient() {
     let despesasQuery = supabase
       .from("despesas")
       .select("id, nome, valor, percentual_desconto, mes, ano, user_id")
-      .eq("mes", mesSelecionado)
-      .eq("ano", anoSelecionado)
+      .eq("mes", contextoTemporal.mesConsulta)
+      .eq("ano", contextoTemporal.anoConsulta)
       .order("id", { ascending: false });
 
     if (roleAtual === "gestor") {
@@ -705,11 +889,15 @@ export default function HomePageClient() {
     }
 
     setCarregando(false);
-  }
+  }, [contextoTemporal.mesConsulta, contextoTemporal.anoConsulta, supabase]);
 
   useEffect(() => {
-    carregarDados();
-  }, [mesSelecionado, anoSelecionado]);
+    const timeoutId = window.setTimeout(() => {
+      void carregarDados();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [carregarDados]);
 
   const resumoPorOperacaoReal = useMemo(() => {
     const mapa = new Map<number, ResumoOperacao>();
@@ -719,7 +907,7 @@ export default function HomePageClient() {
         (item) => item.operacao_id === operacao.id
       );
 
-      mapa.set(operacao.id, calcularResumoPorLancamentos(operacao, lancamentosDaOperacao));
+      mapa.set(operacao.id, calcularResumoDashboardOperacao(operacao, lancamentosDaOperacao));
     }
 
     return mapa;
@@ -737,12 +925,12 @@ export default function HomePageClient() {
       const deveAplicarOverride =
         roleUsuario === "admin" && ownerId !== "" && ownerId !== userIdAtual;
       const override = deveAplicarOverride ? taxasAdminPorGestorId[ownerId] ?? null : null;
-      const operacaoParaCalculo = aplicarOverrideAdminNaOperacao(operacao, override);
-      const repassePercentual = getRepassePercentualComOverride(operacao, override);
+      const operacaoParaCalculo = aplicarOverrideAdminNaOperacaoDashboard(operacao, override);
+      const repassePercentual = getRepassePercentualDashboardComOverride(operacao, override);
 
       mapa.set(
         operacao.id,
-        calcularResumoPorLancamentos(
+        calcularResumoDashboardOperacao(
           operacaoParaCalculo,
           lancamentosDaOperacao,
           repassePercentual
@@ -944,17 +1132,6 @@ export default function HomePageClient() {
     perfisUsuarioPorId,
   ]);
 
-  const nomeAdminAtual = useMemo(() => {
-    if (roleUsuario !== "admin") return "Admin";
-    const nome = perfisUsuarioPorId[userIdAtual]?.nome?.trim() || "";
-    if (nome) return nome;
-    return emailUsuario.trim() || "Admin";
-  }, [roleUsuario, perfisUsuarioPorId, userIdAtual, emailUsuario]);
-  const nomeAdminAtualComCargo = useMemo(() => {
-    if (nomeAdminAtual === "Admin") return "Admin";
-    return `${nomeAdminAtual} - Admin`;
-  }, [nomeAdminAtual]);
-
   const alertasPerformanceHome = useMemo(() => {
     if (roleUsuario !== "admin" && roleUsuario !== "dono") return [];
     if (ranking.length === 0) return [];
@@ -997,17 +1174,60 @@ export default function HomePageClient() {
   const resumoEquipe = totaisPorEscopo.equipe;
   const resumoConsolidado = totaisPorEscopo.consolidado;
   const resumoPorOperacao = roleUsuario === "admin" ? resumoPorOperacaoAdmin : resumoPorOperacaoReal;
+  const baseComissaoAuxiliarConvidador = useMemo(() => {
+    if ((roleUsuario !== "admin" && roleUsuario !== "gestor") || !userIdAtual) {
+      return 0;
+    }
+
+    return calcularBaseComissaoAuxiliarConvidador(
+      userIdAtual,
+      operacoes,
+      lancamentos,
+      despesas
+    );
+  }, [roleUsuario, userIdAtual, operacoes, lancamentos, despesas]);
+  const totalComissoesAuxiliaresResumo = useMemo(() => {
+    if (roleUsuario !== "admin" && roleUsuario !== "gestor") {
+      return {
+        totalComissoesAuxiliares: 0,
+        comissoesPorAuxiliar: [],
+      };
+    }
+
+    return calcularTotalComissoesAuxiliares(
+      baseComissaoAuxiliarConvidador,
+      comissoesAuxiliaresAtivas
+    );
+  }, [roleUsuario, baseComissaoAuxiliarConvidador, comissoesAuxiliaresAtivas]);
 
   const fraseMotivacional = useMemo(() => {
-    const seed = resumoProprio.roiMes + mesSelecionado + anoSelecionado + operacoes.length;
+    const seed =
+      resumoProprio.roiMes +
+      contextoTemporal.mesConsulta +
+      contextoTemporal.anoConsulta +
+      operacoes.length;
     return getFraseAleatoria(FRASES_ROI_ALTO, seed);
-  }, [resumoProprio.roiMes, mesSelecionado, anoSelecionado, operacoes.length]);
+  }, [
+    resumoProprio.roiMes,
+    contextoTemporal.mesConsulta,
+    contextoTemporal.anoConsulta,
+    operacoes.length,
+  ]);
 
   const fraseAtencao = useMemo(() => {
     const seed =
-      resumoProprio.roiMes + mesSelecionado + anoSelecionado + operacoes.length + 17;
+      resumoProprio.roiMes +
+      contextoTemporal.mesConsulta +
+      contextoTemporal.anoConsulta +
+      operacoes.length +
+      17;
     return getFraseAleatoria(FRASES_ROI_BAIXO, seed);
-  }, [resumoProprio.roiMes, mesSelecionado, anoSelecionado, operacoes.length]);
+  }, [
+    resumoProprio.roiMes,
+    contextoTemporal.mesConsulta,
+    contextoTemporal.anoConsulta,
+    operacoes.length,
+  ]);
 
   function renderKpiGrid(
     resumo: ResumoKpi,
@@ -1017,18 +1237,24 @@ export default function HomePageClient() {
       esconderLucroLiquido?: boolean;
       esconderRepasseTotal?: boolean;
       aplicarDespesasNoRepasseTotal?: boolean;
+      descontoComissoesAuxiliares?: number;
+      mostrarComissoesAuxiliares?: boolean;
     }
   ) {
     const esconderRepasseLiquido = options?.esconderRepasseLiquido ?? false;
     const esconderLucroLiquido = options?.esconderLucroLiquido ?? false;
     const esconderRepasseTotal = options?.esconderRepasseTotal ?? false;
     const aplicarDespesasNoRepasseTotal = options?.aplicarDespesasNoRepasseTotal ?? false;
-    const repasseTotalExibido = aplicarDespesasNoRepasseTotal
+    const descontoComissoesAuxiliares = options?.descontoComissoesAuxiliares ?? 0;
+    const mostrarComissoesAuxiliares = options?.mostrarComissoesAuxiliares ?? false;
+    const repasseTotalBase = aplicarDespesasNoRepasseTotal
       ? resumo.repasseTotal - resumo.descontoDespesas
       : resumo.repasseTotal;
+    const repasseTotalExibido = repasseTotalBase - descontoComissoesAuxiliares;
     const totalCardsVisiveis =
       3 +
       (esconderLucroLiquido ? 0 : 1) +
+      (mostrarComissoesAuxiliares ? 1 : 0) +
       (esconderRepasseTotal ? 0 : 1) +
       (esconderRepasseLiquido ? 0 : 1);
     const classeGridXL =
@@ -1041,65 +1267,85 @@ export default function HomePageClient() {
         : "xl:grid-cols-6";
 
     return (
-      <section className="mt-4 md:mt-6">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 md:text-sm md:tracking-[0.12em]">
+      <section className="mt-2 md:mt-6">
+        <p className="mb-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-400 md:mb-2 md:text-sm md:tracking-[0.12em]">
           {titulo}
         </p>
-        <div className={`grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3 ${classeGridXL}`}>
-          <div className="min-w-0 overflow-hidden rounded-[20px] border border-white/10 border-l-4 border-l-red-500 bg-[#0f172a]/85 p-3 shadow-sm md:p-5">
-            <p className="text-xs font-semibold text-slate-400 md:text-sm">Custo Total</p>
-            <p className="mt-2 whitespace-nowrap tracking-tight text-lg font-extrabold leading-none text-red-600 sm:text-xl md:text-2xl lg:text-3xl">
-              R$ {formatarNumero(resumo.custoTotal)}
-            </p>
+        <div className={`grid grid-cols-2 gap-1 md:gap-3 lg:grid-cols-3 xl:gap-2 ${classeGridXL}`}>
+          <div className="min-w-0 overflow-hidden rounded-[12px] border border-white/10 border-l-[3px] border-l-red-500 bg-[#0f172a]/85 px-1.5 py-1 shadow-sm md:rounded-[20px] md:border-l-4 md:px-4 md:py-4">
+            <p className="text-[9px] font-semibold text-slate-400 md:text-sm">Custo Total</p>
+            <ResponsiveMetricValue
+              value={`R$ ${formatarNumero(resumo.custoTotal)}`}
+              size="hero"
+              className="mt-0.5 font-black text-[clamp(0.74rem,2.9vw,0.86rem)] leading-none text-red-600 sm:text-[clamp(0.95rem,3vw,1.12rem)] xl:text-[clamp(1.2rem,1.4vw,1.75rem)]"
+            />
           </div>
-          <div className="min-w-0 overflow-hidden rounded-[20px] border border-white/10 border-l-4 border-l-yellow-400 bg-[#0f172a]/85 p-3 shadow-sm md:p-5">
-            <p className="text-xs font-semibold text-slate-400 md:text-sm">Receita Total</p>
-            <p className="mt-2 whitespace-nowrap tracking-tight text-lg font-extrabold leading-none text-blue-600 sm:text-xl md:text-2xl lg:text-3xl">
-              R$ {formatarNumero(resumo.receitaTotal)}
-            </p>
+          <div className="min-w-0 overflow-hidden rounded-[12px] border border-white/10 border-l-[3px] border-l-yellow-400 bg-[#0f172a]/85 px-1.5 py-1 shadow-sm md:rounded-[20px] md:border-l-4 md:px-4 md:py-4">
+            <p className="text-[9px] font-semibold text-slate-400 md:text-sm">Receita Total</p>
+            <ResponsiveMetricValue
+              value={`R$ ${formatarNumero(resumo.receitaTotal)}`}
+              size="hero"
+              className="mt-0.5 font-black text-[clamp(0.74rem,2.9vw,0.86rem)] leading-none text-blue-600 sm:text-[clamp(0.95rem,3vw,1.12rem)] xl:text-[clamp(1.2rem,1.4vw,1.75rem)]"
+            />
           </div>
           {!esconderLucroLiquido && (
-            <div className="min-w-0 overflow-hidden rounded-[20px] border border-white/10 border-l-4 border-l-blue-500 bg-[#0f172a]/85 p-3 shadow-sm md:p-5">
-              <p className="text-xs font-semibold text-slate-400 md:text-sm">Lucro Líquido</p>
-              <p className="mt-2 whitespace-nowrap tracking-tight text-lg font-extrabold leading-none text-green-600 sm:text-xl md:text-2xl lg:text-3xl">
-                R$ {formatarNumero(resumo.lucroLiquido)}
-              </p>
+            <div className="min-w-0 overflow-hidden rounded-[12px] border border-white/10 border-l-[3px] border-l-blue-500 bg-[#0f172a]/85 px-1.5 py-1 shadow-sm md:rounded-[20px] md:border-l-4 md:px-4 md:py-4">
+              <p className="text-[9px] font-semibold text-slate-400 md:text-sm">Lucro Líquido</p>
+              <ResponsiveMetricValue
+                value={`R$ ${formatarNumero(resumo.lucroLiquido)}`}
+                size="hero"
+                className="mt-0.5 font-black text-[clamp(0.74rem,2.9vw,0.86rem)] leading-none text-green-600 sm:text-[clamp(0.95rem,3vw,1.12rem)] xl:text-[clamp(1.2rem,1.4vw,1.75rem)]"
+              />
             </div>
           )}
-          <div className="min-w-0 overflow-hidden rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-3 shadow-sm md:p-5">
-            <p className="text-xs font-semibold text-slate-400 md:text-sm">ROI do Mês</p>
-            <p
-              className={`mt-2 whitespace-nowrap tracking-tight text-lg font-extrabold leading-none sm:text-xl md:text-2xl lg:text-3xl ${getCorPorValor(
+          <div className="min-w-0 overflow-hidden rounded-[12px] border border-white/10 border-l-[3px] border-l-green-500 bg-[#0f172a]/85 px-1.5 py-1 shadow-sm md:rounded-[20px] md:border-l-4 md:px-4 md:py-4">
+            <p className="text-[9px] font-semibold text-slate-400 md:text-sm">ROI do período</p>
+            <ResponsiveMetricValue
+              value={`${formatarNumero(resumo.roiMes)}%`}
+              size="hero"
+              className={`mt-0.5 font-black text-[clamp(0.74rem,2.9vw,0.86rem)] leading-none sm:text-[clamp(0.95rem,3vw,1.12rem)] xl:text-[clamp(1.2rem,1.4vw,1.75rem)] ${getCorPorValor(
                 resumo.roiMes
               )}`}
-            >
-              {formatarNumero(resumo.roiMes)}%
-            </p>
+            />
           </div>
+          {mostrarComissoesAuxiliares && (
+            <div className="min-w-0 overflow-hidden rounded-[12px] border border-white/10 border-l-[3px] border-l-amber-400 bg-[#0f172a]/85 px-1.5 py-1 shadow-sm md:rounded-[20px] md:border-l-4 md:px-4 md:py-4">
+              <p className="text-[9px] font-semibold text-slate-400 md:text-sm">Comiss&atilde;o Auxs</p>
+              <ResponsiveMetricValue
+                value={`R$ ${formatarNumero(descontoComissoesAuxiliares)}`}
+                size="hero"
+                className={`mt-0.5 font-black text-[clamp(0.74rem,2.9vw,0.86rem)] leading-none sm:text-[clamp(0.95rem,3vw,1.12rem)] xl:text-[clamp(1.2rem,1.4vw,1.75rem)] ${getCorPorValor(
+                  -Math.abs(descontoComissoesAuxiliares)
+                )}`}
+              />
+            </div>
+          )}
           {!esconderRepasseTotal && (
-            <div className="min-w-0 overflow-hidden rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-3 shadow-sm md:p-5">
-              <p className="text-xs font-semibold text-slate-400 md:text-sm">Repasse Total</p>
-              <p
-                className={`mt-2 whitespace-nowrap tracking-tight text-lg font-extrabold leading-none sm:text-xl md:text-2xl lg:text-3xl ${getCorPorValor(
+            <div className="min-w-0 overflow-hidden rounded-[12px] border border-white/10 border-l-[3px] border-l-green-500 bg-[#0f172a]/85 px-1.5 py-1 shadow-sm md:rounded-[20px] md:border-l-4 md:px-4 md:py-4">
+              <p className="text-[9px] font-semibold text-slate-400 md:text-sm">Repasse Total</p>
+              <ResponsiveMetricValue
+                value={`R$ ${formatarNumero(repasseTotalExibido)}`}
+                size="hero"
+                className={`mt-0.5 font-black text-[clamp(0.74rem,2.9vw,0.86rem)] leading-none sm:text-[clamp(0.95rem,3vw,1.12rem)] xl:text-[clamp(1.2rem,1.4vw,1.75rem)] ${getCorPorValor(
                   repasseTotalExibido
                 )}`}
-              >
-                R$ {formatarNumero(repasseTotalExibido)}
-              </p>
+              />
             </div>
           )}
           {!esconderRepasseLiquido && (
-            <div className="min-w-0 overflow-hidden rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-3 shadow-sm md:p-5">
-              <p className="text-xs font-semibold text-slate-400 md:text-sm">Repasse Líquido</p>
-              <p
-                className={`mt-2 whitespace-nowrap tracking-tight text-lg font-extrabold leading-none sm:text-xl md:text-2xl lg:text-3xl ${getCorPorValor(
+            <div className="min-w-0 overflow-hidden rounded-[12px] border border-white/10 border-l-[3px] border-l-green-500 bg-[#0f172a]/85 px-1.5 py-1 shadow-sm md:rounded-[20px] md:border-l-4 md:px-4 md:py-4">
+              <p className="text-[9px] font-semibold text-slate-400 md:text-sm">Repasse Líquido</p>
+              <ResponsiveMetricValue
+                value={`R$ ${formatarNumero(resumo.repasseLiquidoFinal)}`}
+                size="hero"
+                className={`mt-0.5 font-black text-[clamp(0.74rem,2.9vw,0.86rem)] leading-none sm:text-[clamp(0.95rem,3vw,1.12rem)] xl:text-[clamp(1.2rem,1.4vw,1.75rem)] ${getCorPorValor(
                   resumo.repasseLiquidoFinal
                 )}`}
-              >
-                R$ {formatarNumero(resumo.repasseLiquidoFinal)}
-              </p>
-              <p className="mt-1 text-[10px] text-slate-500 md:text-xs">
-                já com o débito das despesas
+              />
+              <p className="mt-0.5 text-[8px] text-slate-500 md:text-xs">
+                {contextoTemporal.usaDespesas
+                  ? "já com o débito das despesas"
+                  : "sem débito de despesas neste recorte"}
               </p>
             </div>
           )}
@@ -1109,104 +1355,220 @@ export default function HomePageClient() {
   }
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-transparent px-4 py-4 md:px-6 md:py-6 xl:px-8">
+    <main className="min-h-screen overflow-x-hidden bg-transparent px-2 py-2 md:px-6 md:py-6 xl:px-8">
       <section className="mx-auto w-full max-w-7xl">
-        <header className="relative flex flex-col items-center gap-3">
+        <header className="relative flex flex-col items-center gap-0.5 md:gap-3">
           <div className="flex w-full justify-center">
             <Image
               src="/uptime-v2.png"
               alt="Uptime"
               width={300}
               height={72}
-              className="h-auto w-[190px] md:w-[240px] xl:w-[300px]"
+              className="h-auto w-[108px] md:w-[240px] xl:w-[300px]"
               priority
             />
           </div>
-          <p className="text-center text-sm text-slate-400 md:text-lg">
-            Visão geral consolidada do mês
+          <p className="text-center text-[8px] text-slate-400 md:text-lg">
+            Visão geral consolidada do período
           </p>
 
         </header>
 
-        <section className="mt-4 rounded-[24px] border border-white/10 bg-[#0f172a]/85 p-3 shadow-[0_20px_45px_rgba(2,6,23,0.55)] md:mt-6 md:p-6">
+        <section className="mt-0.5 border-0 bg-transparent p-0 shadow-none md:mt-4">
           <div
             className={
               roleUsuario === "admin" || roleUsuario === "gestor" || roleUsuario === "auxiliar"
-                ? "grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto] md:items-center"
-                : "flex flex-col gap-3"
+                ? "grid grid-cols-1 gap-0.5 md:grid-cols-[1fr_auto] md:items-center"
+                : "flex flex-col gap-1 md:gap-3"
             }
           >
             <div className="flex w-full justify-center">
-              <div className="flex w-full flex-col items-center gap-2 md:w-auto md:flex-row md:flex-nowrap md:items-center md:gap-3">
-              <div className="relative w-full md:w-auto">
+              <div className="relative flex w-full max-w-3xl flex-col items-center gap-0 md:gap-3">
                 <button
                   type="button"
-                  onClick={() => setPeriodoAberto((prev) => !prev)}
-                  className="min-h-[40px] w-full whitespace-nowrap rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-2 text-center text-sm font-semibold text-slate-100 md:w-auto md:px-5 md:py-3 md:text-base"
+                  onClick={() => setSeletorTemporalAberto((prev) => !prev)}
+                  className="min-h-[20px] w-auto max-w-[120px] rounded-md border border-white/10 bg-[#0b1222] px-2 py-0.5 text-center text-[9px] font-semibold text-slate-100 transition hover:bg-white/10 md:w-auto md:max-w-none md:min-h-[36px] md:min-w-[168px] md:rounded-xl md:border-white/20 md:px-4 md:py-2 md:text-sm"
                 >
-                  <span>Período: {MESES.find((m) => m.valor === mesSelecionado)?.label}/{anoSelecionado}</span>
+                  {contextoTemporal.labelBotao}
                 </button>
 
-                {periodoAberto && (
-                  <div className="absolute left-0 top-full z-20 mt-2 max-h-72 w-full overflow-y-auto rounded-2xl border border-white/15 bg-[#0b1222] p-2 shadow-xl sm:w-56">
-                    {periodosDisponiveis.map((periodo) => (
+                {seletorTemporalAberto && (
+                  <div className="mt-1 w-full rounded-[14px] border border-white/15 bg-[#0b1222] p-1.5 text-left shadow-2xl md:mt-0 md:rounded-[24px] md:p-5">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 md:text-xs md:tracking-[0.18em]">
+                      Período
+                    </p>
+
+                    <div className="mt-2 grid gap-1.5 md:grid-cols-2 md:gap-2 xl:grid-cols-4">
                       <button
-                        key={`${periodo.mes}-${periodo.ano}`}
                         type="button"
                         onClick={() => {
-                          setMesSelecionado(periodo.mes);
-                          setAnoSelecionado(periodo.ano);
-                          setPeriodoAberto(false);
+                          setModoTemporal("periodo");
+                          atualizarContextoTemporalNaUrl({ modo: "periodo" });
                         }}
-                        className={`block w-full rounded-xl px-3 py-2 text-left text-sm ${
-                          periodo.mes === mesSelecionado && periodo.ano === anoSelecionado
-                            ? "bg-cyan-500 text-white"
-                            : "text-slate-100 hover:bg-white/10"
+                        className={`rounded-xl border px-3 py-2 text-[12px] font-semibold transition md:rounded-2xl md:px-4 md:py-3 md:text-sm ${
+                          modoTemporal === "periodo"
+                            ? "border-cyan-300 bg-cyan-500/20 text-cyan-100"
+                            : "border-white/20 bg-white/5 text-slate-200 hover:bg-white/10"
                         }`}
                       >
-                        {periodo.label}
+                        Mês
                       </button>
-                    ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setModoTemporal("hoje");
+                          atualizarContextoTemporalNaUrl({ modo: "hoje" });
+                        }}
+                        className={`rounded-xl border px-3 py-2 text-[12px] font-semibold transition md:rounded-2xl md:px-4 md:py-3 md:text-sm ${
+                          modoTemporal === "hoje"
+                            ? "border-cyan-300 bg-cyan-500/20 text-cyan-100"
+                            : "border-white/20 bg-white/5 text-slate-200 hover:bg-white/10"
+                        }`}
+                      >
+                        Hoje
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setModoTemporal("ontem");
+                          atualizarContextoTemporalNaUrl({ modo: "ontem" });
+                        }}
+                        className={`rounded-xl border px-3 py-2 text-[12px] font-semibold transition md:rounded-2xl md:px-4 md:py-3 md:text-sm ${
+                          modoTemporal === "ontem"
+                            ? "border-cyan-300 bg-cyan-500/20 text-cyan-100"
+                            : "border-white/20 bg-white/5 text-slate-200 hover:bg-white/10"
+                        }`}
+                      >
+                        Ontem
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setModoTemporal("calendario");
+                          atualizarContextoTemporalNaUrl({ modo: "calendario" });
+                        }}
+                        className={`rounded-xl border px-3 py-2 text-[12px] font-semibold transition md:rounded-2xl md:px-4 md:py-3 md:text-sm ${
+                          modoTemporal === "calendario"
+                            ? "border-cyan-300 bg-cyan-500/20 text-cyan-100"
+                            : "border-white/20 bg-white/5 text-slate-200 hover:bg-white/10"
+                        }`}
+                      >
+                        Período
+                      </button>
+                    </div>
+
+                    {(modoTemporal === "periodo" || modoTemporal === "calendario") && (
+                      <div className="mt-2 grid gap-2 md:mt-4 md:gap-3 md:grid-cols-2">
+                        <label className="flex flex-col gap-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 md:gap-2 md:text-xs md:tracking-[0.18em]">
+                          Ano
+                          <select
+                            value={anoSelecionado}
+                            onChange={(event) => {
+                              const proximoAno = Number(event.target.value);
+                              setAnoSelecionado(proximoAno);
+                              atualizarContextoTemporalNaUrl({ ano: proximoAno });
+                            }}
+                            className="min-h-[34px] rounded-xl border border-white/20 bg-[#09101d] px-3 py-1.5 text-[12px] font-semibold text-slate-100 md:min-h-[42px] md:rounded-2xl md:px-4 md:py-2 md:text-sm"
+                          >
+                            {anosDisponiveis.map((ano) => (
+                              <option key={ano} value={ano}>
+                                {ano}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="flex flex-col gap-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 md:gap-2 md:text-xs md:tracking-[0.18em]">
+                          Mês
+                          <select
+                            value={mesSelecionado}
+                            onChange={(event) => {
+                              const proximoMes = Number(event.target.value);
+                              setMesSelecionado(proximoMes);
+                              atualizarContextoTemporalNaUrl({ mes: proximoMes });
+                            }}
+                            className="min-h-[34px] rounded-xl border border-white/20 bg-[#09101d] px-3 py-1.5 text-[12px] font-semibold text-slate-100 md:min-h-[42px] md:rounded-2xl md:px-4 md:py-2 md:text-sm"
+                          >
+                            {Array.from({ length: 12 }, (_, index) => index + 1).map((mes) => (
+                              <option key={mes} value={mes}>
+                                {String(mes).padStart(2, "0")} - {getNomeMes(mes)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                    )}
+
+                    {modoTemporal === "calendario" && (
+                      <div className="mt-2 grid gap-2 md:mt-3 md:gap-3 md:grid-cols-2">
+                        <label className="flex flex-col gap-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 md:gap-2 md:text-xs md:tracking-[0.18em]">
+                          Início
+                          <input
+                            type="date"
+                            value={dataInicioSelecionada}
+                            min={dataMinimaMesSelecionado}
+                            max={dataMaximaMesSelecionado}
+                            onChange={(event) => {
+                              const proximaDataInicio = event.target.value;
+                              setDataInicioSelecionada(proximaDataInicio);
+                              if (proximaDataInicio > dataFimSelecionada) {
+                                setDataFimSelecionada(proximaDataInicio);
+                                atualizarContextoTemporalNaUrl({
+                                  inicio: proximaDataInicio,
+                                  fim: proximaDataInicio,
+                                });
+                                return;
+                              }
+                              atualizarContextoTemporalNaUrl({ inicio: proximaDataInicio });
+                            }}
+                            className="min-h-[34px] rounded-xl border border-white/20 bg-[#09101d] px-3 py-1.5 text-[12px] font-semibold text-slate-100 md:min-h-[42px] md:rounded-2xl md:px-4 md:py-2 md:text-sm"
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 md:gap-2 md:text-xs md:tracking-[0.18em]">
+                          Fim
+                          <input
+                            type="date"
+                            value={dataFimSelecionada}
+                            min={dataInicioSelecionada}
+                            max={dataMaximaMesSelecionado}
+                            onChange={(event) => {
+                              const proximaDataFim = event.target.value;
+                              setDataFimSelecionada(proximaDataFim);
+                              if (proximaDataFim < dataInicioSelecionada) {
+                                setDataInicioSelecionada(proximaDataFim);
+                                atualizarContextoTemporalNaUrl({
+                                  inicio: proximaDataFim,
+                                  fim: proximaDataFim,
+                                });
+                                return;
+                              }
+                              atualizarContextoTemporalNaUrl({ fim: proximaDataFim });
+                            }}
+                            className="min-h-[34px] rounded-xl border border-white/20 bg-[#09101d] px-3 py-1.5 text-[12px] font-semibold text-slate-100 md:min-h-[42px] md:rounded-2xl md:px-4 md:py-2 md:text-sm"
+                          />
+                        </label>
+                      </div>
+                    )}
+
+                    <div className="mt-2 flex flex-col gap-1.5 md:mt-4 md:gap-2 md:flex-row md:items-center md:justify-between">
+                      <div className="text-[10px] text-slate-400 md:text-sm">
+                        <p>
+                          Filtro ativo:{" "}
+                          <span className="font-semibold text-slate-200">
+                            {contextoTemporal.labelResumo}
+                          </span>
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSeletorTemporalAberto(false)}
+                        className="min-h-[34px] rounded-xl border border-cyan-300/30 bg-cyan-500/15 px-3 py-1.5 text-[12px] font-semibold text-cyan-100 transition hover:bg-cyan-500/25 md:min-h-[40px] md:rounded-2xl md:px-4 md:py-2 md:text-sm"
+                      >
+                        Aplicar período
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
-
-              <div className="flex w-full flex-col items-center gap-1.5 md:w-auto md:flex-row md:flex-nowrap md:items-center md:gap-3">
-                <button
-                  type="button"
-                  onClick={() => setModoTemporal("periodo")}
-                  className={`min-h-[40px] w-full whitespace-nowrap rounded-2xl border px-4 py-2 text-center text-sm font-semibold transition md:w-auto ${
-                    modoTemporal === "periodo"
-                      ? "border-cyan-300 bg-cyan-500/20 text-cyan-100"
-                      : "border-white/20 bg-[#0b1222] text-slate-200 hover:bg-white/10"
-                  }`}
-                >
-                  Período inteiro
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setModoTemporal("ontem")}
-                  className={`min-h-[40px] w-full whitespace-nowrap rounded-2xl border px-4 py-2 text-center text-sm font-semibold transition md:w-auto ${
-                    modoTemporal === "ontem"
-                      ? "border-cyan-300 bg-cyan-500/20 text-cyan-100"
-                      : "border-white/20 bg-[#0b1222] text-slate-200 hover:bg-white/10"
-                  }`}
-                >
-                  Ontem
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setModoTemporal("hoje")}
-                  className={`min-h-[40px] w-full whitespace-nowrap rounded-2xl border px-4 py-2 text-center text-sm font-semibold transition md:w-auto ${
-                    modoTemporal === "hoje"
-                      ? "border-cyan-300 bg-cyan-500/20 text-cyan-100"
-                      : "border-white/20 bg-[#0b1222] text-slate-200 hover:bg-white/10"
-                  }`}
-                >
-                  Hoje até o momento
-                </button>
-              </div>
-            </div>
             </div>
 
             {(roleUsuario === "gestor" || roleUsuario === "auxiliar") && (
@@ -1214,20 +1576,13 @@ export default function HomePageClient() {
                 <button
                   type="button"
                   onClick={() => setKpisAbertos((prev) => !prev)}
-                  className="min-h-[40px] w-full rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-2 text-center text-sm font-semibold text-slate-100 transition hover:bg-white/10 md:w-auto md:px-5 md:py-3 md:text-base"
+                  className="min-h-[34px] w-full rounded-xl border border-white/20 bg-[#0b1222] px-3 py-1.5 text-center text-[12px] font-semibold text-slate-100 transition hover:bg-white/10 md:min-h-[40px] md:w-auto md:rounded-2xl md:px-5 md:py-3 md:text-base"
                 >
                   📊 {kpisAbertos ? "Ocultar resumo de operação" : "Ver resumo de operação"}
                 </button>
               </div>
             )}
           </div>
-
-          {modoTemporal !== "periodo" && contextoTemporal.foraDoMesAtual && (
-            <div className="mt-3 rounded-xl border border-amber-300/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-              O modo selecionado usa a data atual. Como o período não é o mês atual, os cards ficam
-              zerados.
-            </div>
-          )}
 
           {!!mensagem && (
             <div className="mt-4 rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700">
@@ -1254,6 +1609,9 @@ export default function HomePageClient() {
             {renderKpiGrid(resumoProprio, "OPERAÇÕES PRÓPRIAS", {
               esconderRepasseLiquido: true,
               aplicarDespesasNoRepasseTotal: true,
+              descontoComissoesAuxiliares:
+                totalComissoesAuxiliaresResumo.totalComissoesAuxiliares,
+              mostrarComissoesAuxiliares: true,
             })}
           </>
         )}
@@ -1271,7 +1629,7 @@ export default function HomePageClient() {
             {kpisAbertos && (
               <>
                 <p className="mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
-                  Resumo — {(nomeMesSelecionado || "").slice(0, 3)}/{anoSelecionado}
+                  Resumo — {contextoTemporal.labelResumo}
                 </p>
                 {renderKpiGrid(resumoProprio, "OPERAÇÕES PRÓPRIAS")}
                 {renderKpiGrid(resumoEquipe, "KPIs da equipe")}
@@ -1287,11 +1645,26 @@ export default function HomePageClient() {
               esconderLucroLiquido: roleUsuario === "auxiliar",
               esconderRepasseTotal: roleUsuario === "auxiliar",
               esconderRepasseLiquido: roleUsuario === "auxiliar",
+              descontoComissoesAuxiliares:
+                roleUsuario === "gestor"
+                  ? totalComissoesAuxiliaresResumo.totalComissoesAuxiliares
+                  : 0,
+              mostrarComissoesAuxiliares: roleUsuario === "gestor",
             })}
+            {roleUsuario === "auxiliar" && comissaoAuxiliarAtual?.temConfiguracao && (
+              <section className="mt-6 rounded-[24px] border border-emerald-300/40 bg-gradient-to-br from-emerald-500/12 via-[#0f172a] to-teal-500/12 p-4 shadow-[0_20px_45px_rgba(2,6,23,0.45)] md:p-6">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-300">
+                  Comissão do mês atual
+                </p>
+                <p className="mt-3 text-3xl font-black text-slate-100 md:text-4xl">
+                  R$ {formatarNumero(comissaoAuxiliarAtual.comissaoAtual ?? 0)}
+                </p>
+              </section>
+            )}
             {kpisAbertos && (
               <section className="mt-6 rounded-[24px] card-white-modern p-4 shadow-sm md:p-6">
                 <p className="mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
-                  Resumo — {(nomeMesSelecionado || "").slice(0, 3)}/{anoSelecionado}
+                  Resumo — {contextoTemporal.labelResumo}
                 </p>
                 <div className="mt-4 space-y-3">
                   {operacoes.length === 0 && (
@@ -1321,53 +1694,61 @@ export default function HomePageClient() {
                         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
                           <div className="rounded-xl bg-gray-50 p-3">
                             <p className="text-xs text-gray-500">Receita</p>
-                            <p className="whitespace-nowrap text-sm font-extrabold text-blue-600">
-                              R$ {formatarNumero(resumo.receita)}
-                            </p>
+                            <ResponsiveMetricValue
+                              value={`R$ ${formatarNumero(resumo.receita)}`}
+                              size="compact"
+                              className="text-blue-600"
+                            />
                           </div>
 
                           <div className="rounded-xl bg-gray-50 p-3">
                             <p className="text-xs text-gray-500">Custo</p>
-                            <p className="whitespace-nowrap text-sm font-extrabold text-red-600">
-                              R$ {formatarNumero(resumo.custo)}
-                            </p>
+                            <ResponsiveMetricValue
+                              value={`R$ ${formatarNumero(resumo.custo)}`}
+                              size="compact"
+                              className="text-red-600"
+                            />
                           </div>
 
                           {roleUsuario !== "auxiliar" && (
                             <div className="rounded-xl bg-gray-50 p-3">
                               <p className="text-xs text-gray-500">Lucro</p>
-                              <p className={`whitespace-nowrap text-sm font-extrabold ${getCorPorValor(resumo.lucro)}`}>
-                                R$ {formatarNumero(resumo.lucro)}
-                              </p>
+                              <ResponsiveMetricValue
+                                value={`R$ ${formatarNumero(resumo.lucro)}`}
+                                size="compact"
+                                className={getCorPorValor(resumo.lucro)}
+                              />
                             </div>
                           )}
 
                           <div className="rounded-xl bg-gray-50 p-3">
                             <p className="text-xs text-gray-500">ROI</p>
-                            <p className={`whitespace-nowrap text-sm font-extrabold ${getCorPorValor(resumo.roi)}`}>
-                              {formatarNumero(resumo.roi)}%
-                            </p>
+                            <ResponsiveMetricValue
+                              value={`${formatarNumero(resumo.roi)}%`}
+                              size="compact"
+                              className={getCorPorValor(resumo.roi)}
+                            />
                           </div>
 
                           {roleUsuario !== "auxiliar" && (
                             <div className="rounded-xl bg-gray-50 p-3">
                               <p className="text-xs text-gray-500">Repasse</p>
-                              <p className={`whitespace-nowrap text-sm font-extrabold ${getCorPorValor(resumo.repasse)}`}>
-                                R$ {formatarNumero(resumo.repasse)}
-                              </p>
+                              <ResponsiveMetricValue
+                                value={`R$ ${formatarNumero(resumo.repasse)}`}
+                                size="compact"
+                                className={getCorPorValor(resumo.repasse)}
+                              />
                             </div>
                           )}
 
                           {roleUsuario !== "auxiliar" && (
                             <div className="rounded-xl bg-gray-50 p-3">
                               <p className="text-xs text-gray-500">Repasse líquido</p>
-                              <p
-                                className={`whitespace-nowrap text-sm font-extrabold ${getCorPorValor(
-                                  resumo.repasseLiquido
-                                )}`}
-                              >
-                                R$ {formatarNumero(resumo.repasseLiquido)}
-                              </p>
+                              <ResponsiveMetricValue
+                                value={`R$ ${formatarNumero(resumo.repasseLiquido)}`}
+                                size="compact"
+                                className={getCorPorValor(resumo.repasseLiquido)}
+                              />
                             </div>
                           )}
                         </div>
@@ -1410,17 +1791,31 @@ export default function HomePageClient() {
         )}
 
         {(roleUsuario === "admin" || roleUsuario === "dono") && (
-          <section className="mt-4 rounded-[24px] card-white-modern p-3 shadow-sm md:mt-6 md:p-6">
-            <div className="flex items-center justify-between gap-2 md:gap-3">
-              <h2 className="text-base font-extrabold text-black md:text-2xl">
-                {roleUsuario === "admin" ? "RANKING GERAL" : "Ranking de admins"}
-              </h2>
-              <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-400 md:text-xs md:tracking-[0.12em]">
-                Ordenado por repasse bruto
+          <section className="mt-3 rounded-[18px] card-white-modern p-2.5 shadow-sm md:mt-6 md:rounded-[24px] md:p-6">
+            <button
+              type="button"
+              onClick={() => setRankingAberto((prev) => !prev)}
+              className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg text-left transition hover:bg-black/5"
+            >
+              <div className="min-w-0">
+                <h2 className="text-[13px] font-extrabold text-black md:text-2xl">
+                  {roleUsuario === "admin" ? "RANKING GERAL" : "Ranking de admins"}
+                </h2>
+                <span className="block text-[8px] font-semibold uppercase tracking-[0.06em] text-gray-400 md:text-xs md:tracking-[0.12em]">
+                  Ordenado por repasse bruto
+                </span>
+              </div>
+              <span
+                className={`shrink-0 text-[11px] font-bold text-slate-500 transition-transform md:text-sm ${
+                  rankingAberto ? "rotate-180" : ""
+                }`}
+                aria-hidden="true"
+              >
+                ▾
               </span>
-            </div>
+            </button>
 
-            <div className="mt-3 space-y-1.5 md:mt-4 md:space-y-2">
+            <div className={rankingAberto ? "mt-2 space-y-0.5 md:mt-4 md:space-y-2" : "hidden"}>
               {ranking.length === 0 && (
                 <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-500">
                   Nenhum dado disponível para o ranking neste período.
@@ -1444,12 +1839,12 @@ export default function HomePageClient() {
               {ranking.map((item, index) => (
                 <div
                   key={item.userId}
-                  className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 md:grid md:grid-cols-3 md:items-center md:gap-4 md:px-4 md:py-3"
+                  className="rounded-md border border-gray-100 bg-gray-50 px-2 py-1.5 md:rounded-xl md:grid md:grid-cols-3 md:items-center md:gap-4 md:px-4 md:py-3"
                 >
-                  <div className="flex items-center gap-3 md:min-w-0">
+                  <div className="flex items-center gap-2 md:min-w-0">
                     {index === 0 ? (
                       <span
-                        className="inline-flex min-w-8 items-center justify-center text-xl leading-none"
+                        className="inline-flex min-w-6 items-center justify-center text-base leading-none md:min-w-8 md:text-xl"
                         title="1º lugar"
                         aria-label="1º lugar"
                       >
@@ -1457,7 +1852,7 @@ export default function HomePageClient() {
                       </span>
                     ) : index === 1 ? (
                       <span
-                        className="inline-flex min-w-8 items-center justify-center text-xl leading-none"
+                        className="inline-flex min-w-6 items-center justify-center text-base leading-none md:min-w-8 md:text-xl"
                         title="2º lugar"
                         aria-label="2º lugar"
                       >
@@ -1465,14 +1860,14 @@ export default function HomePageClient() {
                       </span>
                     ) : index === 2 ? (
                       <span
-                        className="inline-flex min-w-8 items-center justify-center text-xl leading-none"
+                        className="inline-flex min-w-6 items-center justify-center text-base leading-none md:min-w-8 md:text-xl"
                         title="3º lugar"
                         aria-label="3º lugar"
                       >
                         🥉
                       </span>
                     ) : (
-                      <span className="inline-flex min-w-8 items-center justify-center text-base font-extrabold text-slate-700">
+                      <span className="inline-flex min-w-6 items-center justify-center text-sm font-extrabold text-slate-700 md:min-w-8 md:text-base">
                         {index + 1}
                       </span>
                     )}
@@ -1481,17 +1876,30 @@ export default function HomePageClient() {
                       email={item.email}
                       size="sm"
                     />
-                    <p className="truncate text-xs font-semibold text-black md:text-base">{item.label}</p>
+                    <p className="min-w-0 truncate text-[12px] font-semibold text-black md:text-base">
+                      {item.label}
+                    </p>
+                  </div>
+
+                  <div className="mt-0.5 flex min-w-0 flex-col text-[10px] leading-tight text-gray-600 md:hidden">
+                    <p
+                      className={`truncate font-extrabold ${
+                        item.repasseBruto >= 0 ? "text-green-600" : "text-red-600"
+                      }`}
+                    >
+                      R$ {formatarNumero(item.repasseBruto)} • ROI {formatarNumero(item.roiMes)}% •{" "}
+                      {item.operacoesCount} {item.operacoesCount === 1 ? "op" : "ops"}
+                    </p>
                   </div>
 
                   <p
-                    className={`mt-1 whitespace-nowrap text-xs font-extrabold md:mt-0 md:justify-self-center md:text-center md:text-base ${
+                    className={`mt-1 hidden whitespace-nowrap text-xs font-extrabold md:mt-0 md:justify-self-center md:text-center md:text-base ${
                       item.repasseBruto >= 0 ? "text-green-600" : "text-red-600"
-                    }`}
+                    } md:block`}
                   >
                     R$ {formatarNumero(item.repasseBruto)}
                   </p>
-                  <p className="whitespace-nowrap text-[11px] text-gray-500 md:justify-self-end md:text-right md:text-sm">
+                  <p className="hidden whitespace-nowrap text-[11px] text-gray-500 md:block md:justify-self-end md:text-right md:text-sm">
                     ROI {formatarNumero(item.roiMes)}% • {item.operacoesCount} operações
                   </p>
                 </div>

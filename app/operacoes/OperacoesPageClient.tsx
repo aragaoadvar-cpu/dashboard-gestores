@@ -2,8 +2,15 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "../../lib/supabase/client";
+import MonthYearPicker from "../components/MonthYearPicker";
+import ResponsiveMetricValue from "../components/ResponsiveMetricValue";
+import {
+  calcularResumoOperacao,
+  type ResumoOperacaoFinanceiro,
+} from "../../lib/financeiro/calcularResumoOperacao";
+import { buildHrefComPeriodo, getMesAnoFromSearchParams, getPeriodoQueryFromSearchParams } from "../../lib/periodo";
 
 type RoleUsuario = "dono" | "admin" | "gestor" | "auxiliar";
 type RoleOwnerAuxiliar = "dono" | "admin" | "gestor" | null;
@@ -14,7 +21,30 @@ type Operacao = {
   mes: number;
   ano: number;
   user_id: string | null;
+  cotacao_dolar: number | null;
+  taxa_facebook: number | null;
+  taxa_network: number | null;
+  taxa_imposto: number | null;
   repasse_percentual: number | null;
+};
+
+type LancamentoOperacao = {
+  id: number;
+  operacao_id: number;
+  dia: number;
+  facebook: number | null;
+  usd: number | null;
+  ecpm: number | null;
+};
+
+type RoidiarioOperacao = {
+  label: string;
+  roi: number | null;
+};
+
+type OperacaoComResumo = Operacao & {
+  resumo: ResumoOperacaoFinanceiro;
+  roisDiarios: RoidiarioOperacao[];
 };
 
 type PerfilDonoOperacao = {
@@ -43,15 +73,60 @@ const MESES = [
   { valor: 12, nome: "Dezembro", label: "12" },
 ];
 
+const RESUMO_OPERACAO_VAZIO: ResumoOperacaoFinanceiro = {
+  facebookTotal: 0,
+  usdTotal: 0,
+  ecpmMedio: 0,
+  custoTotal: 0,
+  receitaTotalReal: 0,
+  lucroTotal: 0,
+  roi: 0,
+  repasseTotal: 0,
+  repasseLiquidoTotal: 0,
+};
+
+function formatarNumero(valor: number): string {
+  return valor.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function getCorROI(valor: number) {
+  if (valor < 0) return "text-red-600";
+  if (valor <= 30) return "text-amber-500";
+  if (valor <= 60) return "text-blue-600";
+  return "text-green-600";
+}
+
+function formatarDiaMes(data: Date) {
+  return data.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+  });
+}
+
+function getJanelaRoiUltimosCincoDiasFechados(dataBase: Date) {
+  return Array.from({ length: 5 }, (_, index) => {
+    const data = new Date(dataBase);
+    data.setHours(0, 0, 0, 0);
+    data.setDate(data.getDate() - (index + 1));
+    return data;
+  });
+}
+
 export default function OperacoesPageClient() {
   const supabase = createClient();
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const hoje = new Date();
-  const [mesSelecionado, setMesSelecionado] = useState(hoje.getMonth() + 1);
-  const [anoSelecionado, setAnoSelecionado] = useState(hoje.getFullYear());
+  const hoje = useMemo(() => new Date(), []);
+  const periodoInicial = useMemo(() => getMesAnoFromSearchParams(searchParams, hoje), [searchParams, hoje]);
+  const [mesSelecionado, setMesSelecionado] = useState(periodoInicial.mes);
+  const [anoSelecionado, setAnoSelecionado] = useState(periodoInicial.ano);
 
-  const [operacoes, setOperacoes] = useState<Operacao[]>([]);
+  const [operacoes, setOperacoes] = useState<OperacaoComResumo[]>([]);
   const [perfisDonoPorId, setPerfisDonoPorId] = useState<Record<string, PerfilDonoOperacao>>({});
   const [filtroDonoOperacaoId, setFiltroDonoOperacaoId] = useState<string>("todos");
   const [roleUsuario, setRoleUsuario] = useState<RoleUsuario>("gestor");
@@ -62,7 +137,6 @@ export default function OperacoesPageClient() {
   const [erro, setErro] = useState("");
   const [mensagem, setMensagem] = useState("");
 
-  const [periodoAberto, setPeriodoAberto] = useState(false);
   const [criacaoAberta, setCriacaoAberta] = useState(false);
   const [nomeNovaOperacao, setNomeNovaOperacao] = useState("");
   const [criando, setCriando] = useState(false);
@@ -71,27 +145,6 @@ export default function OperacoesPageClient() {
   const [nomeOperacaoEditando, setNomeOperacaoEditando] = useState("");
   const [salvandoNomeOperacao, setSalvandoNomeOperacao] = useState<number | null>(null);
   const [excluindoOperacaoId, setExcluindoOperacaoId] = useState<number | null>(null);
-
-  const periodosDisponiveis = useMemo(() => {
-    const itens: { mes: number; ano: number; label: string }[] = [];
-    const anoBase = hoje.getFullYear();
-
-    for (let ano = anoBase - 1; ano <= anoBase + 2; ano++) {
-      for (let mes = 1; mes <= 12; mes++) {
-        const mesInfo = MESES.find((item) => item.valor === mes);
-        itens.push({
-          mes,
-          ano,
-          label: `${mesInfo?.label}/${ano}`,
-        });
-      }
-    }
-
-    return itens.sort((a, b) => {
-      if (a.ano !== b.ano) return b.ano - a.ano;
-      return b.mes - a.mes;
-    });
-  }, [hoje]);
 
   const nomeMesSelecionado = useMemo(() => {
     return MESES.find((mes) => mes.valor === mesSelecionado)?.nome || "";
@@ -146,13 +199,40 @@ export default function OperacoesPageClient() {
   }, [operacoes, obterLabelDono]);
 
   const operacoesFiltradas = useMemo(() => {
-    if (filtroDonoOperacaoId === "todos") return operacoes;
-    return operacoes.filter((operacao) => operacao.user_id === filtroDonoOperacaoId);
+    const base =
+      filtroDonoOperacaoId === "todos"
+        ? operacoes
+        : operacoes.filter((operacao) => operacao.user_id === filtroDonoOperacaoId);
+
+    return [...base].sort((a, b) =>
+      a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" })
+    );
   }, [operacoes, filtroDonoOperacaoId]);
+
+  const janelaRoiUltimosCincoDiasFechados = useMemo(
+    () => getJanelaRoiUltimosCincoDiasFechados(new Date()),
+    []
+  );
+  const periodoAtual = useMemo(() => getPeriodoQueryFromSearchParams(searchParams), [searchParams]);
 
   const ownerIdFromQuery = (searchParams.get("owner_id") || "").trim();
 
-  async function carregarOperacoes() {
+  useEffect(() => {
+    setMesSelecionado(periodoInicial.mes);
+    setAnoSelecionado(periodoInicial.ano);
+  }, [periodoInicial]);
+
+  const atualizarPeriodoNaUrl = useCallback(
+    (mes: number, ano: number) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("mes", String(mes));
+      params.set("ano", String(ano));
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [pathname, router, searchParams]
+  );
+
+  const carregarOperacoes = useCallback(async () => {
     setCarregando(true);
     setErro("");
     setMensagem("");
@@ -291,7 +371,9 @@ export default function OperacoesPageClient() {
       } else {
         const resultado = await supabase
           .from("operacoes")
-          .select("id, nome, mes, ano, user_id, repasse_percentual")
+          .select(
+            "id, nome, mes, ano, user_id, cotacao_dolar, taxa_facebook, taxa_network, taxa_imposto, repasse_percentual"
+          )
           .in("id", operacaoIdsPermitidasAuxiliar)
           .eq("mes", mesSelecionado)
           .eq("ano", anoSelecionado)
@@ -303,7 +385,9 @@ export default function OperacoesPageClient() {
     } else {
       let operacoesQuery = supabase
         .from("operacoes")
-        .select("id, nome, mes, ano, user_id, repasse_percentual")
+        .select(
+          "id, nome, mes, ano, user_id, cotacao_dolar, taxa_facebook, taxa_network, taxa_imposto, repasse_percentual"
+        )
         .eq("mes", mesSelecionado)
         .eq("ano", anoSelecionado)
         .order("id", { ascending: true });
@@ -326,10 +410,72 @@ export default function OperacoesPageClient() {
     }
 
     const operacoesLista = (operacoesData as Operacao[]) || [];
-    setOperacoes(operacoesLista);
+    const operacaoIds = operacoesLista.map((item) => item.id);
+
+    let lancamentosLista: LancamentoOperacao[] = [];
+    if (operacaoIds.length > 0) {
+      const { data: lancamentosData, error: lancamentosError } = await supabase
+        .from("lancamentos")
+        .select("id, operacao_id, dia, facebook, usd, ecpm")
+        .in("operacao_id", operacaoIds)
+        .order("dia", { ascending: true });
+
+      if (lancamentosError) {
+        setErro(`Erro ao carregar lançamentos das operações: ${JSON.stringify(lancamentosError)}`);
+        setCarregando(false);
+        return;
+      }
+
+      lancamentosLista = (lancamentosData as LancamentoOperacao[]) || [];
+    }
+
+    const operacoesComResumo: OperacaoComResumo[] = operacoesLista.map((operacao) => {
+      const lancamentosDaOperacao = lancamentosLista.filter(
+        (lancamento) => lancamento.operacao_id === operacao.id
+      );
+
+      const roisDiarios = janelaRoiUltimosCincoDiasFechados.map((data) => {
+        const mesmoMesEAno =
+          data.getMonth() + 1 === operacao.mes && data.getFullYear() === operacao.ano;
+
+        if (!mesmoMesEAno) {
+          return {
+            label: formatarDiaMes(data),
+            roi: null,
+          };
+        }
+
+        const lancamentosDoDia = lancamentosDaOperacao.filter(
+          (lancamento) => lancamento.dia === data.getDate()
+        );
+
+        if (lancamentosDoDia.length === 0) {
+          return {
+            label: formatarDiaMes(data),
+            roi: null,
+          };
+        }
+
+        return {
+          label: formatarDiaMes(data),
+          roi: calcularResumoOperacao(operacao, lancamentosDoDia).roi,
+        };
+      });
+
+      return {
+        ...operacao,
+        resumo:
+          lancamentosDaOperacao.length > 0
+            ? calcularResumoOperacao(operacao, lancamentosDaOperacao)
+            : RESUMO_OPERACAO_VAZIO,
+        roisDiarios,
+      };
+    });
+
+    setOperacoes(operacoesComResumo);
 
     const ownerIds = Array.from(
-      new Set(operacoesLista.map((item) => item.user_id).filter(Boolean))
+      new Set(operacoesComResumo.map((item) => item.user_id).filter(Boolean))
     ) as string[];
 
     if (ownerIds.length === 0) {
@@ -399,20 +545,32 @@ export default function OperacoesPageClient() {
 
     setPerfisDonoPorId(mapaPerfis);
 
-    if (roleAtual === "gestor" || roleAtual === "auxiliar") {
-      setFiltroDonoOperacaoId("todos");
-    } else if (ownerIdFromQuery && ownerIds.includes(ownerIdFromQuery)) {
-      setFiltroDonoOperacaoId(ownerIdFromQuery);
-    } else if (filtroDonoOperacaoId !== "todos" && !ownerIds.includes(filtroDonoOperacaoId)) {
-      setFiltroDonoOperacaoId("todos");
-    }
+    setFiltroDonoOperacaoId((atual) => {
+      if (roleAtual === "gestor" || roleAtual === "auxiliar") {
+        return "todos";
+      }
+      if (ownerIdFromQuery && ownerIds.includes(ownerIdFromQuery)) {
+        return ownerIdFromQuery;
+      }
+      return ownerIds.includes(atual) ? atual : "todos";
+    });
 
     setCarregando(false);
-  }
+  }, [
+    anoSelecionado,
+    janelaRoiUltimosCincoDiasFechados,
+    mesSelecionado,
+    ownerIdFromQuery,
+    supabase,
+  ]);
 
   useEffect(() => {
-    carregarOperacoes();
-  }, [mesSelecionado, anoSelecionado, ownerIdFromQuery]);
+    const timeoutId = window.setTimeout(() => {
+      void carregarOperacoes();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [carregarOperacoes]);
 
   function abrirCriacaoOperacao() {
     setCriacaoAberta(true);
@@ -585,39 +743,16 @@ export default function OperacoesPageClient() {
 
         <section className="mt-6 rounded-[24px] border border-white/10 bg-[#0f172a]/85 p-4 shadow-[0_20px_45px_rgba(2,6,23,0.55)] md:p-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setPeriodoAberto((prev) => !prev)}
-                className="rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-3 text-sm font-semibold text-slate-100 md:px-5 md:text-base"
-              >
-                Selecionar período — {MESES.find((m) => m.valor === mesSelecionado)?.label}/
-                {anoSelecionado}
-              </button>
-
-              {periodoAberto && (
-                <div className="absolute left-0 top-full z-20 mt-2 max-h-72 w-56 overflow-y-auto rounded-2xl border border-white/15 bg-[#0b1222] p-2 shadow-xl">
-                  {periodosDisponiveis.map((periodo) => (
-                    <button
-                      key={`${periodo.mes}-${periodo.ano}`}
-                      type="button"
-                      onClick={() => {
-                        setMesSelecionado(periodo.mes);
-                        setAnoSelecionado(periodo.ano);
-                        setPeriodoAberto(false);
-                      }}
-                      className={`block w-full rounded-xl px-3 py-2 text-left text-sm ${
-                        periodo.mes === mesSelecionado && periodo.ano === anoSelecionado
-                          ? "bg-cyan-500 text-white"
-                          : "text-slate-100 hover:bg-white/10"
-                      }`}
-                    >
-                      {periodo.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <MonthYearPicker
+              mes={mesSelecionado}
+              ano={anoSelecionado}
+              onChange={(mes, ano) => {
+                setMesSelecionado(mes);
+                setAnoSelecionado(ano);
+                atualizarPeriodoNaUrl(mes, ano);
+              }}
+              variant="dark"
+            />
 
             <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300 md:text-base">
               Período selecionado:{" "}
@@ -738,8 +873,8 @@ export default function OperacoesPageClient() {
                   key={operacao.id}
                   className="rounded-3xl border border-slate-200 card-white-modern p-5 shadow-sm"
                 >
-                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                    <div className="min-w-0">
+                  <div className="flex flex-col gap-4 xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(360px,520px)_auto] xl:items-center xl:gap-6">
+                    <div className="min-w-0 xl:max-w-sm">
                       {operacaoEditandoId === operacao.id ? (
                         <div className="space-y-2">
                           <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -764,9 +899,43 @@ export default function OperacoesPageClient() {
                       )}
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
+                    {operacaoEditandoId !== operacao.id && (
+                      <div className="grid flex-1 grid-cols-2 gap-3 border-y border-slate-200/80 py-3 sm:grid-cols-3 sm:border-y-0 sm:px-2 sm:py-0 xl:grid-cols-6 xl:px-0">
+                        <div className="text-center">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                            ROI Geral
+                          </p>
+                          <ResponsiveMetricValue
+                            value={`${formatarNumero(operacao.resumo.roi)}%`}
+                            size="compact"
+                            className={`mt-1 ${getCorROI(operacao.resumo.roi)}`}
+                          />
+                        </div>
+
+                        {operacao.roisDiarios.map((roiDiario) => (
+                          <div key={`${operacao.id}-${roiDiario.label}`} className="text-center">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                              {roiDiario.label}
+                            </p>
+                            {roiDiario.roi === null ? (
+                              <p className="mt-1 text-sm font-bold text-slate-400 md:text-base">
+                                Sem dados
+                              </p>
+                            ) : (
+                              <ResponsiveMetricValue
+                                value={`${formatarNumero(roiDiario.roi)}%`}
+                                size="compact"
+                                className={`mt-1 ${getCorROI(roiDiario.roi)}`}
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-2 xl:justify-end">
                       <Link
-                        href={`/operacao/${operacao.id}`}
+                        href={buildHrefComPeriodo(`/operacao/${operacao.id}`, periodoAtual)}
                         className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                       >
                         Abrir

@@ -2,8 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "../../../lib/supabase/client";
+import {
+  buildHrefComPeriodo,
+  getMesAnoFromSearchParams,
+} from "../../../lib/periodo";
+import MonthYearPicker from "../../components/MonthYearPicker";
+import ResponsiveMetricValue from "../../components/ResponsiveMetricValue";
 
 type RoleUsuario = "dono" | "admin" | "gestor";
 
@@ -149,12 +155,14 @@ export default function GestorDetalhePageClient({
   gestorEmail,
 }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
   const hoje = useMemo(() => new Date(), []);
+  const periodoInicial = useMemo(() => getMesAnoFromSearchParams(searchParams, hoje), [searchParams, hoje]);
 
-  const [mesSelecionado, setMesSelecionado] = useState(hoje.getMonth() + 1);
-  const [anoSelecionado, setAnoSelecionado] = useState(hoje.getFullYear());
-  const [periodoAberto, setPeriodoAberto] = useState(false);
+  const [mesSelecionado, setMesSelecionado] = useState(periodoInicial.mes);
+  const [anoSelecionado, setAnoSelecionado] = useState(periodoInicial.ano);
 
   const [roleUsuario, setRoleUsuario] = useState<RoleUsuario>("gestor");
   const [nomeUsuarioAtual, setNomeUsuarioAtual] = useState("");
@@ -173,27 +181,6 @@ export default function GestorDetalhePageClient({
   const [erro, setErro] = useState("");
   const [mensagem, setMensagem] = useState("");
   const [processandoAcao, setProcessandoAcao] = useState<"remover" | "promover" | null>(null);
-
-  const periodosDisponiveis = useMemo(() => {
-    const itens: { mes: number; ano: number; label: string }[] = [];
-    const anoBase = hoje.getFullYear();
-
-    for (let ano = anoBase - 1; ano <= anoBase + 2; ano++) {
-      for (let mes = 1; mes <= 12; mes++) {
-        const mesInfo = MESES.find((item) => item.valor === mes);
-        itens.push({
-          mes,
-          ano,
-          label: `${mesInfo?.label}/${ano}`,
-        });
-      }
-    }
-
-    return itens.sort((a, b) => {
-      if (a.ano !== b.ano) return b.ano - a.ano;
-      return b.mes - a.mes;
-    });
-  }, [hoje]);
 
   const nomeMesSelecionado = useMemo(() => {
     return MESES.find((mes) => mes.valor === mesSelecionado)?.nome || "";
@@ -215,6 +202,21 @@ export default function GestorDetalhePageClient({
     if (nomeAdminAtual === "Admin") return "Admin";
     return `${nomeAdminAtual} - Admin`;
   }, [nomeAdminAtual]);
+
+  useEffect(() => {
+    setMesSelecionado(periodoInicial.mes);
+    setAnoSelecionado(periodoInicial.ano);
+  }, [periodoInicial]);
+
+  const atualizarPeriodoNaUrl = useCallback(
+    (mes: number, ano: number) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("mes", String(mes));
+      params.set("ano", String(ano));
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [pathname, router, searchParams]
+  );
 
   const carregarTaxasAdmin = useCallback(async () => {
     setCarregandoTaxas(true);
@@ -331,7 +333,11 @@ export default function GestorDetalhePageClient({
   }, [supabase, gestorId, mesSelecionado, anoSelecionado, carregarTaxasAdmin]);
 
   useEffect(() => {
-    void carregarDados();
+    const timer = window.setTimeout(() => {
+      void carregarDados();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [carregarDados]);
 
   const resumoPorOperacao = useMemo(() => {
@@ -523,7 +529,7 @@ export default function GestorDetalhePageClient({
       }
 
       setMensagem(data?.message ?? "Ação concluída com sucesso.");
-      router.push("/gestores");
+      router.push(buildHrefComPeriodo("/gestores", { mes: mesSelecionado, ano: anoSelecionado }));
       router.refresh();
     } catch (error) {
       setErro(`Erro inesperado ao executar ação: ${(error as Error).message}`);
@@ -544,39 +550,16 @@ export default function GestorDetalhePageClient({
 
         <section className="mt-6 rounded-[24px] card-white-modern p-4 shadow-sm md:p-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setPeriodoAberto((prev) => !prev)}
-                className="rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-black md:px-5 md:text-base"
-              >
-                Selecionar período — {MESES.find((m) => m.valor === mesSelecionado)?.label}/
-                {anoSelecionado}
-              </button>
-
-              {periodoAberto && (
-                <div className="absolute left-0 top-full z-20 mt-2 max-h-72 w-56 overflow-y-auto rounded-2xl border border-gray-200 card-white-modern p-2 shadow-xl">
-                  {periodosDisponiveis.map((periodo) => (
-                    <button
-                      key={`${periodo.mes}-${periodo.ano}`}
-                      type="button"
-                      onClick={() => {
-                        setMesSelecionado(periodo.mes);
-                        setAnoSelecionado(periodo.ano);
-                        setPeriodoAberto(false);
-                      }}
-                      className={`block w-full rounded-xl px-3 py-2 text-left text-sm ${
-                        periodo.mes === mesSelecionado && periodo.ano === anoSelecionado
-                          ? "bg-black text-white"
-                          : "text-black hover:bg-gray-100"
-                      }`}
-                    >
-                      {periodo.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <MonthYearPicker
+              mes={mesSelecionado}
+              ano={anoSelecionado}
+              onChange={(mes, ano) => {
+                setMesSelecionado(mes);
+                setAnoSelecionado(ano);
+                atualizarPeriodoNaUrl(mes, ano);
+              }}
+              variant="light"
+            />
 
             <div className="rounded-xl bg-gray-100 px-4 py-3 text-sm text-gray-700 md:text-base">
               Período selecionado:{" "}
@@ -633,42 +616,34 @@ export default function GestorDetalhePageClient({
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <div className="rounded-[20px] border-l-4 border-red-500 card-white-modern p-4 shadow-sm">
               <p className="text-xs font-semibold text-gray-500 md:text-sm">Operações</p>
-              <p className="mt-2 text-lg font-extrabold text-black md:text-2xl">
-                {resumoGeral.operacoesCount}
-              </p>
+              <ResponsiveMetricValue
+                value={String(resumoGeral.operacoesCount)}
+                className="mt-2 text-black"
+              />
             </div>
 
             <div className="rounded-[20px] border-l-4 border-yellow-400 card-white-modern p-4 shadow-sm">
               <p className="text-xs font-semibold text-gray-500 md:text-sm">Repasse bruto</p>
-              <p
-                className={`mt-2 text-lg font-extrabold md:text-2xl ${getCorResultado(
-                  resumoGeral.repasseBrutoTotal
-                )}`}
-              >
-                R$ {formatarNumero(resumoGeral.repasseBrutoTotal)}
-              </p>
+              <ResponsiveMetricValue
+                value={`R$ ${formatarNumero(resumoGeral.repasseBrutoTotal)}`}
+                className={`mt-2 ${getCorResultado(resumoGeral.repasseBrutoTotal)}`}
+              />
             </div>
 
             <div className="rounded-[20px] border-l-4 border-blue-500 card-white-modern p-4 shadow-sm">
               <p className="text-xs font-semibold text-gray-500 md:text-sm">Lucro</p>
-              <p
-                className={`mt-2 text-lg font-extrabold md:text-2xl ${getCorResultado(
-                  resumoGeral.lucroTotal
-                )}`}
-              >
-                R$ {formatarNumero(resumoGeral.lucroTotal)}
-              </p>
+              <ResponsiveMetricValue
+                value={`R$ ${formatarNumero(resumoGeral.lucroTotal)}`}
+                className={`mt-2 ${getCorResultado(resumoGeral.lucroTotal)}`}
+              />
             </div>
 
             <div className="rounded-[20px] border-l-4 border-green-500 card-white-modern p-4 shadow-sm">
               <p className="text-xs font-semibold text-gray-500 md:text-sm">ROI</p>
-              <p
-                className={`mt-2 text-lg font-extrabold md:text-2xl ${getCorResultado(
-                  resumoGeral.roi
-                )}`}
-              >
-                {formatarNumero(resumoGeral.roi)}%
-              </p>
+              <ResponsiveMetricValue
+                value={`${formatarNumero(resumoGeral.roi)}%`}
+                className={`mt-2 ${getCorResultado(resumoGeral.roi)}`}
+              />
             </div>
           </div>
         </section>
@@ -796,42 +771,34 @@ export default function GestorDetalhePageClient({
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                 <div className="rounded-[20px] border-l-4 border-red-500 bg-gray-50 p-4">
                   <p className="text-xs font-semibold text-gray-500 md:text-sm">Operações</p>
-                  <p className="mt-2 text-lg font-extrabold text-black md:text-2xl">
-                    {resumoAdminSimulado.operacoesCount}
-                  </p>
+                  <ResponsiveMetricValue
+                    value={String(resumoAdminSimulado.operacoesCount)}
+                    className="mt-2 text-black"
+                  />
                 </div>
 
                 <div className="rounded-[20px] border-l-4 border-yellow-400 bg-gray-50 p-4">
                   <p className="text-xs font-semibold text-gray-500 md:text-sm">Repasse bruto</p>
-                  <p
-                    className={`mt-2 text-lg font-extrabold md:text-2xl ${getCorResultado(
-                      resumoAdminSimulado.repasseBrutoTotal
-                    )}`}
-                  >
-                    R$ {formatarNumero(resumoAdminSimulado.repasseBrutoTotal)}
-                  </p>
+                  <ResponsiveMetricValue
+                    value={`R$ ${formatarNumero(resumoAdminSimulado.repasseBrutoTotal)}`}
+                    className={`mt-2 ${getCorResultado(resumoAdminSimulado.repasseBrutoTotal)}`}
+                  />
                 </div>
 
                 <div className="rounded-[20px] border-l-4 border-blue-500 bg-gray-50 p-4">
                   <p className="text-xs font-semibold text-gray-500 md:text-sm">Lucro</p>
-                  <p
-                    className={`mt-2 text-lg font-extrabold md:text-2xl ${getCorResultado(
-                      resumoAdminSimulado.lucroTotal
-                    )}`}
-                  >
-                    R$ {formatarNumero(resumoAdminSimulado.lucroTotal)}
-                  </p>
+                  <ResponsiveMetricValue
+                    value={`R$ ${formatarNumero(resumoAdminSimulado.lucroTotal)}`}
+                    className={`mt-2 ${getCorResultado(resumoAdminSimulado.lucroTotal)}`}
+                  />
                 </div>
 
                 <div className="rounded-[20px] border-l-4 border-green-500 bg-gray-50 p-4">
                   <p className="text-xs font-semibold text-gray-500 md:text-sm">ROI</p>
-                  <p
-                    className={`mt-2 text-lg font-extrabold md:text-2xl ${getCorResultado(
-                      resumoAdminSimulado.roi
-                    )}`}
-                  >
-                    {formatarNumero(resumoAdminSimulado.roi)}%
-                  </p>
+                  <ResponsiveMetricValue
+                    value={`${formatarNumero(resumoAdminSimulado.roi)}%`}
+                    className={`mt-2 ${getCorResultado(resumoAdminSimulado.roi)}`}
+                  />
                 </div>
               </div>
             </section>
@@ -868,7 +835,11 @@ export default function GestorDetalhePageClient({
             </button>
 
             <Link
-              href={`/operacoes?owner_id=${encodeURIComponent(gestorId)}`}
+              href={buildHrefComPeriodo(
+                "/operacoes",
+                { mes: mesSelecionado, ano: anoSelecionado },
+                { owner_id: gestorId }
+              )}
               className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-black transition hover:bg-gray-50"
             >
               Ver operações do gestor

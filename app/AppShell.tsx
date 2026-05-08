@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { buildHrefComPeriodo, getPeriodoQueryFromSearchParams } from "@/lib/periodo";
 
 type RoleUsuario = "dono" | "admin" | "gestor" | "auxiliar" | null;
 
@@ -15,6 +16,7 @@ type Props = {
 export default function AppShell({ roleUsuario, children }: Props) {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
   const hideSidebar = pathname === "/login";
   const [saindo, setSaindo] = useState(false);
@@ -22,6 +24,15 @@ export default function AppShell({ roleUsuario, children }: Props) {
   const podeVerGestores = roleUsuario === "admin" || roleUsuario === "dono";
   const podeVerConvites =
     roleUsuario === "admin" || roleUsuario === "gestor" || roleUsuario === "dono";
+  const periodoAtual = getPeriodoQueryFromSearchParams(searchParams);
+
+  function getHrefTemporal(destino: string) {
+    return buildHrefComPeriodo(destino, periodoAtual);
+  }
+
+  useEffect(() => {
+    setSaindo(false);
+  }, [pathname, roleUsuario]);
 
   if (hideSidebar) {
     return <>{children}</>;
@@ -42,57 +53,63 @@ export default function AppShell({ roleUsuario, children }: Props) {
 
   async function sairDaConta() {
     if (saindo) return;
-    setSaindo(true);
-    const { error } = await supabase.auth.signOut();
-    if (error) {
+    try {
+      setSaindo(true);
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        throw error;
+      }
+      router.replace("/login");
+      router.refresh();
+    } catch (error) {
+      console.error("Erro ao sair:", error);
+    } finally {
       setSaindo(false);
-      return;
     }
-    router.push("/login");
   }
 
   return (
     <div className="relative flex min-h-screen flex-col bg-[#06080f] text-slate-100 lg:flex-row">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.16),transparent_36%),radial-gradient(circle_at_bottom_left,rgba(37,99,235,0.14),transparent_36%)]" />
 
-      <header className="sticky top-0 z-20 border-b border-white/10 bg-[#0a0f1d]/95 px-3 py-3 shadow-[0_8px_20px_rgba(2,6,23,0.35)] backdrop-blur lg:hidden">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="bg-gradient-to-r from-blue-300 to-blue-500 bg-clip-text text-sm font-black tracking-[0.12em] text-transparent">
+      <header className="sticky top-0 z-20 border-b border-white/10 bg-[#0a0f1d]/95 px-2 py-1.5 shadow-[0_8px_20px_rgba(2,6,23,0.35)] backdrop-blur lg:hidden">
+        <div className="flex items-center justify-between gap-1.5">
+          <h2 className="bg-gradient-to-r from-blue-300 to-blue-500 bg-clip-text text-[11px] font-black tracking-[0.08em] text-transparent">
             ADSYNC3
           </h2>
-          <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">
+          <p className="text-[8px] uppercase tracking-[0.1em] text-slate-400">
             Command Center
           </p>
         </div>
 
-        <nav className="mt-3 -mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <Link href="/" className={`${getNavClass("/")} shrink-0 !px-3 !py-2 !text-sm`}>
+        <nav className="mt-1.5 -mx-0.5 flex gap-1 overflow-x-auto px-0.5 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <Link href={getHrefTemporal("/")} className={`${getNavClass("/")} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
             Dashboard
           </Link>
-          <Link href="/operacoes" className={`${getNavClass("/operacoes")} shrink-0 !px-3 !py-2 !text-sm`}>
+          <Link href={getHrefTemporal("/operacoes")} className={`${getNavClass("/operacoes")} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
             Operações
           </Link>
-          <Link href="/despesas" className={`${getNavClass("/despesas")} shrink-0 !px-3 !py-2 !text-sm`}>
+          <Link href={getHrefTemporal("/despesas")} className={`${getNavClass("/despesas")} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
             Despesas
           </Link>
           {podeVerGestores && (
-            <Link href="/gestores" className={`${getNavClass("/gestores")} shrink-0 !px-3 !py-2 !text-sm`}>
+            <Link href={getHrefTemporal("/gestores")} className={`${getNavClass("/gestores")} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
               Gestores
             </Link>
           )}
           {podeVerConvites && (
-            <Link href="/convites" className={`${getNavClass("/convites")} shrink-0 !px-3 !py-2 !text-sm`}>
+            <Link href="/convites" className={`${getNavClass("/convites")} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
               Convites
             </Link>
           )}
-          <Link href="/configuracao" className={`${getNavClass("/configuracao")} shrink-0 !px-3 !py-2 !text-sm`}>
+          <Link href="/configuracao" className={`${getNavClass("/configuracao")} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
             Configurações
           </Link>
           <button
             type="button"
             onClick={sairDaConta}
             disabled={saindo}
-            className="shrink-0 inline-flex min-h-[44px] items-center gap-2 rounded-2xl border border-red-300/40 bg-red-500/10 px-3 py-2 text-sm font-semibold text-red-100 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+            className="shrink-0 inline-flex min-h-[28px] items-center gap-1 rounded-lg border border-red-300/40 bg-red-500/10 px-2 py-1 text-[11px] font-semibold text-red-100 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saindo ? "Saindo..." : "Sair"}
           </button>
@@ -108,11 +125,11 @@ export default function AppShell({ roleUsuario, children }: Props) {
         </p>
 
         <nav className="mt-8 flex flex-col gap-2">
-          <Link href="/" className={getNavClass("/")}>Dashboard</Link>
-          <Link href="/operacoes" className={getNavClass("/operacoes")}>Operações</Link>
-          <Link href="/despesas" className={getNavClass("/despesas")}>Despesas</Link>
+          <Link href={getHrefTemporal("/")} className={getNavClass("/")}>Dashboard</Link>
+          <Link href={getHrefTemporal("/operacoes")} className={getNavClass("/operacoes")}>Operações</Link>
+          <Link href={getHrefTemporal("/despesas")} className={getNavClass("/despesas")}>Despesas</Link>
           {podeVerGestores && (
-            <Link href="/gestores" className={getNavClass("/gestores")}>Gestores</Link>
+            <Link href={getHrefTemporal("/gestores")} className={getNavClass("/gestores")}>Gestores</Link>
           )}
           {podeVerConvites && (
             <Link href="/convites" className={getNavClass("/convites")}>Convites</Link>
@@ -129,7 +146,7 @@ export default function AppShell({ roleUsuario, children }: Props) {
         </nav>
       </aside>
 
-      <main className="relative z-10 flex-1 p-3 md:p-5 lg:p-8">{children}</main>
+      <main className="relative z-10 flex-1 p-2.5 md:p-5 lg:p-8">{children}</main>
     </div>
   );
 }
