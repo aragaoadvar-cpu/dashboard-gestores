@@ -1174,6 +1174,7 @@ export default function HomePageClient() {
   const resumoEquipe = totaisPorEscopo.equipe;
   const resumoConsolidado = totaisPorEscopo.consolidado;
   const resumoPorOperacao = roleUsuario === "admin" ? resumoPorOperacaoAdmin : resumoPorOperacaoReal;
+  const deveDescontarComissoesAuxiliaresNoResumo = modoTemporal === "periodo";
   const baseComissaoAuxiliarConvidador = useMemo(() => {
     if ((roleUsuario !== "admin" && roleUsuario !== "gestor") || !userIdAtual) {
       return 0;
@@ -1609,9 +1610,10 @@ export default function HomePageClient() {
             {renderKpiGrid(resumoProprio, "OPERAÇÕES PRÓPRIAS", {
               esconderRepasseLiquido: true,
               aplicarDespesasNoRepasseTotal: true,
-              descontoComissoesAuxiliares:
-                totalComissoesAuxiliaresResumo.totalComissoesAuxiliares,
-              mostrarComissoesAuxiliares: true,
+              descontoComissoesAuxiliares: deveDescontarComissoesAuxiliaresNoResumo
+                ? totalComissoesAuxiliaresResumo.totalComissoesAuxiliares
+                : 0,
+              mostrarComissoesAuxiliares: deveDescontarComissoesAuxiliaresNoResumo,
             })}
           </>
         )}
@@ -1646,10 +1648,11 @@ export default function HomePageClient() {
               esconderRepasseTotal: roleUsuario === "auxiliar",
               esconderRepasseLiquido: roleUsuario === "auxiliar",
               descontoComissoesAuxiliares:
-                roleUsuario === "gestor"
+                roleUsuario === "gestor" && deveDescontarComissoesAuxiliaresNoResumo
                   ? totalComissoesAuxiliaresResumo.totalComissoesAuxiliares
                   : 0,
-              mostrarComissoesAuxiliares: roleUsuario === "gestor",
+              mostrarComissoesAuxiliares:
+                roleUsuario === "gestor" && deveDescontarComissoesAuxiliaresNoResumo,
             })}
             {roleUsuario === "auxiliar" && comissaoAuxiliarAtual?.temConfiguracao && (
               <section className="mt-6 rounded-[24px] border border-emerald-300/40 bg-gradient-to-br from-emerald-500/12 via-[#0f172a] to-teal-500/12 p-4 shadow-[0_20px_45px_rgba(2,6,23,0.45)] md:p-6">

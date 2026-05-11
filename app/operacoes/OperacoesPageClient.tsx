@@ -216,6 +216,8 @@ export default function OperacoesPageClient() {
   const periodoAtual = useMemo(() => getPeriodoQueryFromSearchParams(searchParams), [searchParams]);
 
   const ownerIdFromQuery = (searchParams.get("owner_id") || "").trim();
+  const classesBotaoCardMobile =
+    "inline-flex h-5 w-full items-center justify-center rounded-md px-1.5 text-[9px] leading-none font-medium whitespace-nowrap";
 
   useEffect(() => {
     setMesSelecionado(periodoInicial.mes);
@@ -730,19 +732,21 @@ export default function OperacoesPageClient() {
   }
 
   return (
-    <main className="min-h-screen bg-transparent p-4 md:p-6 xl:p-8">
+    <main className="min-h-screen bg-transparent px-2 py-2 md:p-6 xl:p-8">
       <section className="mx-auto max-w-7xl">
-        <header>
-          <h1 className="text-2xl font-extrabold text-slate-100 md:text-4xl xl:text-5xl">
-            Operações
-          </h1>
-          <p className="mt-2 text-sm text-slate-400 md:text-lg">
-            Gerencie as operações do período selecionado
-          </p>
+        <header className="mb-1 md:mb-0 md:block">
+          <div className="hidden min-w-0 md:block">
+            <h1 className="text-base font-extrabold text-slate-100 md:text-4xl xl:text-5xl">
+              Operações
+            </h1>
+            <p className="mt-0.5 hidden text-[10px] text-slate-400 md:block md:mt-2 md:text-lg">
+              Gerencie as operações do período selecionado
+            </p>
+          </div>
         </header>
 
-        <section className="mt-6 rounded-[24px] border border-white/10 bg-[#0f172a]/85 p-4 shadow-[0_20px_45px_rgba(2,6,23,0.55)] md:p-6">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <section className="mt-2 rounded-xl border border-white/10 bg-[#0f172a]/85 p-2 shadow-[0_20px_45px_rgba(2,6,23,0.55)] md:mt-6 md:rounded-[24px] md:p-6">
+          <div className="flex items-center gap-1.5 md:hidden">
             <MonthYearPicker
               mes={mesSelecionado}
               ano={anoSelecionado}
@@ -752,9 +756,47 @@ export default function OperacoesPageClient() {
                 atualizarPeriodoNaUrl(mes, ano);
               }}
               variant="dark"
+              compactMobile
+              className="shrink-0"
             />
 
-            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300 md:text-base">
+            {(roleUsuario === "admin" || roleUsuario === "dono") && (
+              <select
+                value={filtroDonoOperacaoId}
+                onChange={(e) => setFiltroDonoOperacaoId(e.target.value)}
+                className="h-6 min-w-0 flex-1 rounded-md border border-white/15 bg-[#0b1222] px-2 py-0 !text-[11px] !leading-none text-slate-100"
+              >
+                <option value="todos">Todos</option>
+                {donosDisponiveis.map((dono) => (
+                  <option key={dono.id} value={dono.id}>
+                    {dono.label}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <button
+              onClick={abrirCriacaoOperacao}
+              className="h-5 shrink-0 whitespace-nowrap rounded-md bg-gradient-to-r from-cyan-500 to-indigo-500 px-1.5 !text-[11px] !leading-none font-medium text-white"
+            >
+              + NOVA
+            </button>
+          </div>
+
+          <div className="hidden md:flex md:flex-row md:items-center md:justify-between md:gap-4">
+            <MonthYearPicker
+              mes={mesSelecionado}
+              ano={anoSelecionado}
+              onChange={(mes, ano) => {
+                setMesSelecionado(mes);
+                setAnoSelecionado(ano);
+                atualizarPeriodoNaUrl(mes, ano);
+              }}
+              variant="dark"
+              compactMobile
+            />
+
+            <div className="hidden rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-slate-300 md:block md:rounded-xl md:px-4 md:py-3 md:text-base">
               Período selecionado:{" "}
               <span className="font-semibold text-slate-100">
                 {nomeMesSelecionado} {anoSelecionado}
@@ -763,44 +805,49 @@ export default function OperacoesPageClient() {
           </div>
 
           {!!mensagem && (
-            <div className="mt-4 rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700">
+            <div className="mt-2 rounded-lg border border-green-300 bg-green-50 px-2 py-1 text-[10px] text-green-700 md:mt-4 md:rounded-xl md:px-4 md:py-3 md:text-sm">
               {mensagem}
             </div>
           )}
 
           {!!erro && (
-            <div className="mt-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="mt-2 rounded-lg border border-red-300 bg-red-50 px-2 py-1 text-[10px] text-red-700 md:mt-4 md:rounded-xl md:px-4 md:py-3 md:text-sm">
               {erro}
             </div>
           )}
 
-          <div className="mt-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div>
-              <h2 className="text-xl font-extrabold text-slate-100 md:text-2xl">
-                Lista de operações
-              </h2>
-              <p className="mt-1 text-sm text-slate-400 md:text-base">
-                Perfil atual: <span className="font-semibold">{labelPerfilAtual}</span>
-              </p>
+          <div className="mt-1.5 hidden flex-col gap-1.5 md:mt-6 md:flex md:gap-4 md:flex-row md:items-start md:justify-between">
+            <div className="flex items-center justify-between gap-2 md:block md:min-w-0">
+              <div className="min-w-0">
+                <h2 className="text-xs font-extrabold text-slate-100 md:text-2xl">
+                  Lista de operações
+                </h2>
+                <p className="mt-0.5 text-[10px] text-slate-400 md:mt-1 md:text-base">
+                  <span className="hidden md:inline">Perfil atual: </span>
+                  <span className="font-semibold">{labelPerfilAtual}</span>
+                </p>
+              </div>
+
+              <button
+                onClick={abrirCriacaoOperacao}
+                className="h-6 w-fit shrink-0 rounded-md bg-gradient-to-r from-cyan-500 to-indigo-500 px-2 text-[10px] leading-none font-medium text-white md:h-auto md:rounded-2xl md:px-5 md:py-3 md:text-base"
+              >
+                <span className="hidden md:inline">+ NOVA</span>
+              </button>
             </div>
 
-            <button
-              onClick={abrirCriacaoOperacao}
-              className="rounded-2xl bg-gradient-to-r from-cyan-500 to-indigo-500 px-5 py-3 text-sm font-semibold text-white md:text-base"
-            >
-              + Nova Operação
-            </button>
+            <div className="hidden md:block" />
           </div>
 
           {(roleUsuario === "admin" || roleUsuario === "dono") && (
-            <div className="mt-4">
-              <label className="mb-2 block text-sm font-medium text-slate-300">
-                Filtrar por gestor/dono da operação
+            <div className="mt-1 hidden items-center gap-1.5 md:mt-4 md:block">
+              <label className="text-[10px] leading-none font-medium text-slate-300 md:mb-2 md:block md:text-sm">
+                <span className="hidden md:inline">Filtrar por gestor/dono da operação</span>
               </label>
               <select
                 value={filtroDonoOperacaoId}
                 onChange={(e) => setFiltroDonoOperacaoId(e.target.value)}
-                className="w-full max-w-md rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-3 text-sm text-slate-100 md:text-base"
+                className="h-6 w-fit min-w-20 rounded-md border border-white/15 bg-[#0b1222] px-2 py-0 text-[10px] leading-none text-slate-100 md:h-auto md:w-full md:max-w-md md:rounded-2xl md:border-white/20 md:px-4 md:py-3 md:text-base"
               >
                 <option value="todos">Todos</option>
                 {donosDisponiveis.map((dono) => (
@@ -813,39 +860,39 @@ export default function OperacoesPageClient() {
           )}
 
           {criacaoAberta && (
-            <div className="mt-6 rounded-3xl border border-white/15 bg-[#0b1222]/80 p-5">
+            <div className="mt-2 rounded-xl border border-white/15 bg-[#0b1222]/80 p-2 md:mt-6 md:rounded-3xl md:p-5">
               <div className="max-w-3xl">
-                <h3 className="text-lg font-bold text-slate-100 md:text-xl">Criar nova operação</h3>
-                <p className="mt-1 text-sm text-slate-400">
+                <h3 className="text-xs font-bold text-slate-100 md:text-xl">Criar nova operação</h3>
+                <p className="mt-0.5 text-[10px] text-slate-400 md:text-sm">
                   A nova operação será criada em {nomeMesSelecionado} de {anoSelecionado}.
                 </p>
 
-                <div className="mt-4">
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
+                <div className="mt-2 md:mt-4">
+                  <label className="mb-1 block text-[10px] font-medium text-slate-300 md:mb-2 md:text-sm">
                     Nome da operação
                   </label>
                   <input
                     type="text"
                     value={nomeNovaOperacao}
                     onChange={(e) => setNomeNovaOperacao(e.target.value)}
-                    className="w-full rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-3 text-slate-100 md:text-base"
+                    className="h-7 w-full rounded-lg border border-white/20 bg-[#0b1222] px-2 text-xs text-slate-100 md:h-auto md:rounded-2xl md:px-4 md:py-3 md:text-base"
                     placeholder="Ex: Operação Meta Junho"
                   />
                 </div>
 
-                <div className="mt-4 flex gap-3">
+                <div className="mt-2 flex flex-wrap gap-1.5 md:mt-4 md:gap-3">
                   <button
                     type="button"
                     onClick={criarNovaOperacao}
                     disabled={criando}
-                    className="rounded-2xl bg-gradient-to-r from-cyan-500 to-indigo-500 px-5 py-3 text-sm font-semibold text-white disabled:opacity-60 md:text-base"
+                    className="h-6 w-fit rounded-md bg-gradient-to-r from-cyan-500 to-indigo-500 px-2 text-[10px] leading-none font-medium text-white disabled:opacity-60 md:h-auto md:rounded-2xl md:px-5 md:py-3 md:text-base"
                   >
                     {criando ? "Criando..." : "Confirmar criação"}
                   </button>
                   <button
                     type="button"
                     onClick={cancelarCriacaoOperacao}
-                    className="rounded-2xl border border-white/20 bg-transparent px-5 py-3 text-sm font-semibold text-slate-100 md:text-base"
+                    className="h-6 w-fit rounded-md border border-white/20 bg-transparent px-2 text-[10px] leading-none font-medium text-slate-100 md:h-auto md:rounded-2xl md:px-5 md:py-3 md:text-base"
                   >
                     Cancelar
                   </button>
@@ -854,15 +901,15 @@ export default function OperacoesPageClient() {
             </div>
           )}
 
-          <div className="mt-6 space-y-4">
+          <div className="mt-2 space-y-2 md:mt-6 md:space-y-4">
             {carregando && (
-              <div className="rounded-2xl border border-white/10 bg-[#0b1222]/70 p-4 text-sm text-slate-300">
+              <div className="rounded-lg border border-white/10 bg-[#0b1222]/70 p-2 text-[10px] text-slate-300 md:rounded-2xl md:p-4 md:text-sm">
                 Carregando operações...
               </div>
             )}
 
             {!carregando && operacoesFiltradas.length === 0 && (
-              <div className="rounded-2xl border border-dashed border-white/20 bg-[#0b1222]/70 p-6 text-sm text-slate-300">
+              <div className="rounded-lg border border-dashed border-white/20 bg-[#0b1222]/70 p-2 text-[10px] text-slate-300 md:rounded-2xl md:p-6 md:text-sm">
                 Nenhuma operação encontrada para os filtros selecionados.
               </div>
             )}
@@ -871,28 +918,139 @@ export default function OperacoesPageClient() {
               operacoesFiltradas.map((operacao) => (
                 <article
                   key={operacao.id}
-                  className="rounded-3xl border border-slate-200 card-white-modern p-5 shadow-sm"
+                  className="rounded-md border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.92))] p-1.5 shadow-[0_14px_32px_rgba(2,6,23,0.28)] md:rounded-3xl md:border-[rgba(148,163,184,0.45)] md:bg-[linear-gradient(160deg,#fdfefe_0%,#f1f6ff_58%,#e9f1ff_100%)] md:p-5 md:shadow-[0_10px_24px_rgba(15,23,42,0.14),0_2px_8px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.95)]"
                 >
-                  <div className="flex flex-col gap-4 xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(360px,520px)_auto] xl:items-center xl:gap-6">
+                  <div className="space-y-1 md:hidden">
+                    {operacaoEditandoId === operacao.id ? (
+                      <div className="space-y-1">
+                        <label className="block text-[8px] font-semibold uppercase tracking-wide text-slate-400">
+                          Editar nome
+                        </label>
+                        <input
+                          type="text"
+                          value={nomeOperacaoEditando}
+                          onChange={(e) => setNomeOperacaoEditando(e.target.value)}
+                          className="h-6 w-full rounded-md border border-white/15 bg-white/95 px-1.5 text-[10px] text-slate-900"
+                        />
+                        <div className="grid grid-cols-2 gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => salvarNomeOperacao(operacao.id)}
+                            disabled={salvandoNomeOperacao === operacao.id}
+                            className="inline-flex h-5 items-center justify-center rounded-md bg-gradient-to-r from-cyan-500 to-indigo-500 px-1.5 !text-[8px] !leading-none font-medium text-white disabled:opacity-60"
+                          >
+                            {salvandoNomeOperacao === operacao.id ? "Salvando" : "Salvar"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={cancelarEdicaoOperacao}
+                            className="inline-flex h-5 items-center justify-center rounded-md border border-white/15 bg-white/8 px-1.5 !text-[8px] !leading-none font-medium text-slate-100"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="min-w-0">
+                          <h3 className="truncate text-[11px] font-semibold leading-none text-slate-50">
+                            {operacao.nome}
+                          </h3>
+                          <p className="mt-0.5 truncate text-[8px] leading-none text-slate-400">
+                            ID #{operacao.id} • Dono: {obterLabelDono(operacao.user_id)}
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-1">
+                          {[
+                            {
+                              key: `${operacao.id}-geral-mobile`,
+                              label: "Geral",
+                              roi: operacao.resumo.roi,
+                            },
+                            ...operacao.roisDiarios.map((roiDiario) => ({
+                              key: `${operacao.id}-${roiDiario.label}-mobile`,
+                              label: roiDiario.label,
+                              roi: roiDiario.roi,
+                            })),
+                          ].map((item) => (
+                            <div
+                              key={item.key}
+                              className="flex h-9 flex-col items-center justify-center rounded-md border border-white/10 bg-white/5 px-1 py-0.5 text-center"
+                            >
+                              <p className="text-[8px] font-semibold uppercase tracking-[0.06em] text-slate-400">
+                                {item.label}
+                              </p>
+                              {item.roi === null ? (
+                                <p className="mt-0.5 text-[8px] font-semibold leading-none text-slate-400">
+                                  Sem dados
+                                </p>
+                              ) : (
+                                <ResponsiveMetricValue
+                                  value={`${formatarNumero(item.roi)}%`}
+                                  size="compact"
+                                  className={`mt-0.5 text-[9px] font-semibold leading-none ${getCorROI(
+                                    item.roi
+                                  )}`}
+                                />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-1">
+                          <Link
+                            href={buildHrefComPeriodo(`/operacao/${operacao.id}`, periodoAtual)}
+                            className="inline-flex h-5 items-center justify-center rounded-md border border-white/15 bg-white/8 px-1 !text-[8px] !leading-none font-medium text-slate-100"
+                          >
+                            Abrir
+                          </Link>
+                          {roleUsuario !== "auxiliar" ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => iniciarEdicaoOperacao(operacao)}
+                                className="inline-flex h-5 items-center justify-center rounded-md border border-white/15 bg-white/8 px-1 !text-[8px] !leading-none font-medium text-slate-100"
+                              >
+                                Renomear
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => excluirOperacao(operacao)}
+                                disabled={excluindoOperacaoId === operacao.id}
+                                className="inline-flex h-5 items-center justify-center rounded-md border border-red-400/30 bg-red-500/10 px-1 !text-[8px] !leading-none font-medium text-red-300 disabled:opacity-60"
+                              >
+                                {excluindoOperacaoId === operacao.id ? "Excluindo" : "Excluir"}
+                              </button>
+                            </>
+                          ) : (
+                            <div className="col-span-2" />
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="hidden md:flex md:flex-col md:gap-4 xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(360px,520px)_auto] xl:items-center xl:gap-6">
                     <div className="min-w-0 xl:max-w-sm">
                       {operacaoEditandoId === operacao.id ? (
-                        <div className="space-y-2">
-                          <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        <div className="space-y-1 md:space-y-2">
+                          <label className="block text-[9px] font-semibold uppercase tracking-wide text-slate-400 md:text-xs md:text-slate-500">
                             Editar nome
                           </label>
                           <input
                             type="text"
                             value={nomeOperacaoEditando}
                             onChange={(e) => setNomeOperacaoEditando(e.target.value)}
-                            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 md:w-96 md:text-base"
+                            className="h-7 w-full rounded-lg border border-white/15 bg-white/95 px-2 text-xs text-slate-900 md:h-auto md:rounded-xl md:border-slate-300 md:bg-white md:px-3 md:py-2 md:w-96 md:text-base"
                           />
                         </div>
                       ) : (
                         <>
-                          <h3 className="truncate text-lg font-bold text-slate-900 md:text-xl">
+                          <h3 className="truncate pr-1 text-[11px] font-semibold leading-none text-slate-50 md:text-xl md:text-slate-900">
                             {operacao.nome}
                           </h3>
-                          <p className="mt-1 text-sm text-slate-500">
+                          <p className="mt-0.5 truncate text-[8px] leading-none text-slate-400 md:mt-1 md:text-sm md:text-slate-500">
                             ID #{operacao.id} • Dono: {obterLabelDono(operacao.user_id)}
                           </p>
                         </>
@@ -900,32 +1058,37 @@ export default function OperacoesPageClient() {
                     </div>
 
                     {operacaoEditandoId !== operacao.id && (
-                      <div className="grid flex-1 grid-cols-2 gap-3 border-y border-slate-200/80 py-3 sm:grid-cols-3 sm:border-y-0 sm:px-2 sm:py-0 xl:grid-cols-6 xl:px-0">
-                        <div className="text-center">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                            ROI Geral
-                          </p>
-                          <ResponsiveMetricValue
-                            value={`${formatarNumero(operacao.resumo.roi)}%`}
-                            size="compact"
-                            className={`mt-1 ${getCorROI(operacao.resumo.roi)}`}
-                          />
-                        </div>
-
-                        {operacao.roisDiarios.map((roiDiario) => (
-                          <div key={`${operacao.id}-${roiDiario.label}`} className="text-center">
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                              {roiDiario.label}
+                      <div className="grid flex-1 grid-cols-2 gap-1 border-y border-white/10 py-1 md:gap-3 md:border-slate-200/80 md:py-3 sm:grid-cols-3 sm:border-y-0 sm:px-2 sm:py-0 xl:grid-cols-6 xl:px-0">
+                        {[
+                          {
+                            key: `${operacao.id}-geral`,
+                            label: "Geral",
+                            roi: operacao.resumo.roi,
+                          },
+                          ...operacao.roisDiarios.map((roiDiario) => ({
+                            key: `${operacao.id}-${roiDiario.label}`,
+                            label: roiDiario.label,
+                            roi: roiDiario.roi,
+                          })),
+                        ].map((item) => (
+                          <div
+                            key={item.key}
+                            className="flex h-10 flex-col items-center justify-center rounded-md border border-white/10 bg-white/5 px-1 py-1 text-center md:h-auto md:rounded-none md:border-0 md:bg-transparent md:px-0 md:py-0"
+                          >
+                            <p className="text-[8px] font-semibold uppercase tracking-[0.08em] text-slate-400 md:text-[11px] md:text-slate-500">
+                              {item.label}
                             </p>
-                            {roiDiario.roi === null ? (
-                              <p className="mt-1 text-sm font-bold text-slate-400 md:text-base">
+                            {item.roi === null ? (
+                              <p className="mt-0.5 text-[8px] font-semibold leading-none text-slate-400 md:mt-1 md:text-base">
                                 Sem dados
                               </p>
                             ) : (
                               <ResponsiveMetricValue
-                                value={`${formatarNumero(roiDiario.roi)}%`}
+                                value={`${formatarNumero(item.roi)}%`}
                                 size="compact"
-                                className={`mt-1 ${getCorROI(roiDiario.roi)}`}
+                                className={`mt-0.5 text-[10px] font-semibold leading-none md:mt-1 ${
+                                  item.label === "Geral" ? "text-[10px] font-semibold" : ""
+                                } ${getCorROI(item.roi)}`}
                               />
                             )}
                           </div>
@@ -933,10 +1096,10 @@ export default function OperacoesPageClient() {
                       </div>
                     )}
 
-                    <div className="flex flex-wrap gap-2 xl:justify-end">
+                    <div className="grid grid-cols-3 items-center gap-1 md:flex md:flex-wrap md:gap-2 xl:justify-end">
                       <Link
                         href={buildHrefComPeriodo(`/operacao/${operacao.id}`, periodoAtual)}
-                        className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                        className={`${classesBotaoCardMobile} border border-white/15 bg-white/8 text-slate-100 transition hover:bg-white/15 md:flex md:h-auto md:w-auto md:rounded-xl md:border-slate-300 md:bg-white md:px-4 md:py-2 md:text-sm md:text-slate-700 md:hover:bg-slate-50`}
                       >
                         Abrir
                       </Link>
@@ -947,14 +1110,14 @@ export default function OperacoesPageClient() {
                             type="button"
                             onClick={() => salvarNomeOperacao(operacao.id)}
                             disabled={salvandoNomeOperacao === operacao.id}
-                            className="rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                            className={`${classesBotaoCardMobile} bg-gradient-to-r from-cyan-500 to-indigo-500 text-white disabled:opacity-60 md:h-auto md:w-auto md:rounded-xl md:px-4 md:py-2 md:text-sm`}
                           >
                             {salvandoNomeOperacao === operacao.id ? "Salvando..." : "Salvar"}
                           </button>
                           <button
                             type="button"
                             onClick={cancelarEdicaoOperacao}
-                            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+                            className={`${classesBotaoCardMobile} border border-white/15 bg-white/8 text-slate-100 md:h-auto md:w-auto md:rounded-xl md:border-slate-300 md:bg-white md:px-4 md:py-2 md:text-sm md:text-slate-700`}
                           >
                             Cancelar
                           </button>
@@ -963,7 +1126,7 @@ export default function OperacoesPageClient() {
                         <button
                           type="button"
                           onClick={() => iniciarEdicaoOperacao(operacao)}
-                          className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+                          className={`${classesBotaoCardMobile} border border-white/15 bg-white/8 text-slate-100 md:h-auto md:w-auto md:rounded-xl md:border-slate-300 md:bg-white md:px-4 md:py-2 md:text-sm md:text-slate-700`}
                         >
                           Renomear
                         </button>
@@ -974,7 +1137,7 @@ export default function OperacoesPageClient() {
                           type="button"
                           onClick={() => excluirOperacao(operacao)}
                           disabled={excluindoOperacaoId === operacao.id}
-                          className="rounded-xl border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-600 disabled:opacity-60"
+                          className={`${classesBotaoCardMobile} border border-red-400/30 bg-red-500/10 text-red-300 disabled:opacity-60 md:h-auto md:w-auto md:rounded-xl md:border-red-300 md:bg-white md:px-4 md:py-2 md:text-sm md:text-red-600`}
                         >
                           {excluindoOperacaoId === operacao.id ? "Excluindo..." : "Excluir"}
                         </button>

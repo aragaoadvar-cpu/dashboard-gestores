@@ -55,11 +55,6 @@ export function limitarDiaAoMes(dia: number, mes: number, ano: number) {
   return Math.min(Math.max(diaNormalizado, 1), getDiasNoMes(mes, ano));
 }
 
-export function listarDiasDoMes(mes: number, ano: number) {
-  const total = getDiasNoMes(mes, ano);
-  return Array.from({ length: total }, (_, indice) => indice + 1);
-}
-
 export function formatarDiaMesAno(dia: number, mes: number, ano: number) {
   return `${String(dia).padStart(2, "0")}/${String(mes).padStart(2, "0")}/${ano}`;
 }

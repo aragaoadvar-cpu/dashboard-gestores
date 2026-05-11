@@ -114,6 +114,11 @@ function getCorBarraUsd(usd: number): string {
   return "rgba(14,165,233,0.88)";
 }
 
+const CLASSE_CARD_KPI_MOBILE =
+  "min-w-0 rounded-[10px] border border-white/10 border-l-[3px] bg-[#0f172a]/85 p-1 shadow-sm md:rounded-[20px] md:border-l-4 md:p-4";
+const CLASSE_TITULO_KPI_MOBILE = "text-[8px] font-semibold text-slate-400 md:text-sm";
+const CLASSE_VALOR_KPI_MOBILE = "mt-0.5 text-[clamp(0.62rem,2.5vw,0.85rem)] leading-none md:mt-2";
+
 function criarDiasIniciais(mes: number, ano: number): LinhaDia[] {
   const nomesDias = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
   const quantidadeDiasNoMes = new Date(ano, mes, 0).getDate();
@@ -915,23 +920,32 @@ export default function OperacaoPage() {
   return (
     <main className="min-h-screen bg-transparent p-4 md:p-6 xl:p-8">
       <section className="mx-auto max-w-7xl">
-        <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="mb-3 flex flex-col gap-2 md:mb-6 md:gap-3 lg:flex-row lg:items-center lg:justify-between">
           <Link
             href={buildHrefComPeriodo("/", periodoAtual)}
-            className="inline-flex rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-2 text-sm font-semibold text-slate-100 shadow-sm transition hover:bg-white/10"
+            className="hidden rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-2 text-sm font-semibold text-slate-100 shadow-sm transition hover:bg-white/10 md:inline-flex"
           >
             ← Voltar para o dashboard
           </Link>
 
-          <div className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-400">
-            OPERAÇÃO ATIVA -{" "}
-            <span className="text-slate-100">{operacao?.nome || "CARREGANDO..."}</span> -{" "}
-            <span className="text-slate-100">{nomeMes || "..."}</span>
+          <div className="flex items-center gap-2 min-w-0">
+            <Link
+              href={buildHrefComPeriodo("/", periodoAtual)}
+              className="inline-flex h-6 shrink-0 items-center justify-center rounded-md border border-white/20 bg-[#0b1222] px-2 text-[10px] font-medium leading-none text-slate-100 shadow-sm transition hover:bg-white/10 md:hidden"
+            >
+              Voltar
+            </Link>
+
+            <div className="truncate whitespace-nowrap text-[8px] font-semibold uppercase tracking-[0.02em] text-slate-400 md:text-sm md:tracking-[0.12em]">
+              OPERAÇÃO ATIVA -{" "}
+              <span className="text-slate-100">{operacao?.nome || "CARREGANDO..."}</span> -{" "}
+              <span className="text-slate-100">{nomeMes || "..."}</span>
+            </div>
           </div>
         </div>
 
         <section
-          className={`grid gap-3 ${
+          className={`grid gap-1 md:gap-3 ${
             modoAuxiliar
               ? "grid-cols-2 lg:grid-cols-4"
               : `grid-cols-2 lg:grid-cols-3 ${operacaoEhGestor ? "xl:grid-cols-6" : "xl:grid-cols-5"}`
@@ -939,39 +953,39 @@ export default function OperacaoPage() {
         >
           {modoAuxiliar && (
             <>
-              <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-red-500 bg-[#0f172a]/85 p-4 shadow-sm">
-                <p className="text-xs font-semibold text-slate-400 md:text-sm">Facebook</p>
+              <div className={`${CLASSE_CARD_KPI_MOBILE} border-l-red-500`}>
+                <p className={CLASSE_TITULO_KPI_MOBILE}>Facebook</p>
                 <ResponsiveMetricValue
                   value={`R$ ${formatarNumero(resumo.facebookTotal)}`}
                   size="hero"
-                  className="mt-2 text-red-400"
+                  className={`${CLASSE_VALOR_KPI_MOBILE} text-red-400`}
                 />
               </div>
 
-              <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-cyan-400 bg-[#0f172a]/85 p-4 shadow-sm">
-                <p className="text-xs font-semibold text-slate-400 md:text-sm">USD</p>
+              <div className={`${CLASSE_CARD_KPI_MOBILE} border-l-cyan-400`}>
+                <p className={CLASSE_TITULO_KPI_MOBILE}>USD</p>
                 <ResponsiveMetricValue
                   value={`US$ ${formatarNumero(resumo.usdTotal)}`}
                   size="hero"
-                  className="mt-2 text-cyan-300"
+                  className={`${CLASSE_VALOR_KPI_MOBILE} text-cyan-300`}
                 />
               </div>
 
-              <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-violet-400 bg-[#0f172a]/85 p-4 shadow-sm">
-                <p className="text-xs font-semibold text-slate-400 md:text-sm">CPM M&eacute;dio</p>
+              <div className={`${CLASSE_CARD_KPI_MOBILE} border-l-violet-400`}>
+                <p className={CLASSE_TITULO_KPI_MOBILE}>CPM M&eacute;dio</p>
                 <ResponsiveMetricValue
                   value={`US$ ${formatarNumero(resumo.ecpmMedio)}`}
                   size="hero"
-                  className="mt-2 text-violet-300"
+                  className={`${CLASSE_VALOR_KPI_MOBILE} text-violet-300`}
                 />
               </div>
 
-              <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-4 shadow-sm">
-                <p className="text-xs font-semibold text-slate-400 md:text-sm">ROI</p>
+              <div className={`${CLASSE_CARD_KPI_MOBILE} border-l-green-500`}>
+                <p className={CLASSE_TITULO_KPI_MOBILE}>ROI</p>
                 <ResponsiveMetricValue
                   value={`${formatarNumero(resumo.roi)}%`}
                   size="hero"
-                  className={`mt-2 ${getCorROI(resumo.roi)}`}
+                  className={`${CLASSE_VALOR_KPI_MOBILE} ${getCorROI(resumo.roi)}`}
                 />
               </div>
             </>
@@ -979,58 +993,60 @@ export default function OperacaoPage() {
 
           {!modoAuxiliar && (
             <>
-          <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-red-500 bg-[#0f172a]/85 p-4 shadow-sm">
-            <p className="text-xs font-semibold text-slate-400 md:text-sm">Custo</p>
+          <div className={`${CLASSE_CARD_KPI_MOBILE} border-l-red-500`}>
+            <p className={CLASSE_TITULO_KPI_MOBILE}>Custo</p>
             <ResponsiveMetricValue
               value={`R$ ${formatarNumero(resumo.custoTotal)}`}
               size="hero"
-              className="mt-2 text-red-600"
+              className={`${CLASSE_VALOR_KPI_MOBILE} text-red-600`}
             />
           </div>
 
-          <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-yellow-400 bg-[#0f172a]/85 p-4 shadow-sm">
-            <p className="text-xs font-semibold text-slate-400 md:text-sm">Receita</p>
+          <div className={`${CLASSE_CARD_KPI_MOBILE} border-l-yellow-400`}>
+            <p className={CLASSE_TITULO_KPI_MOBILE}>Receita</p>
             <ResponsiveMetricValue
               value={`R$ ${formatarNumero(resumo.receitaTotalReal)}`}
               size="hero"
-              className="mt-2 text-blue-600"
+              className={`${CLASSE_VALOR_KPI_MOBILE} text-blue-600`}
             />
           </div>
 
-          <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-blue-500 bg-[#0f172a]/85 p-4 shadow-sm">
-            <p className="text-xs font-semibold text-slate-400 md:text-sm">Lucro</p>
+          <div className={`${CLASSE_CARD_KPI_MOBILE} border-l-blue-500`}>
+            <p className={CLASSE_TITULO_KPI_MOBILE}>Lucro</p>
             <ResponsiveMetricValue
               value={`R$ ${formatarNumero(resumo.lucroTotal)}`}
               size="hero"
-              className="mt-2 text-green-600"
+              className={`${CLASSE_VALOR_KPI_MOBILE} text-green-600`}
             />
           </div>
 
-          <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-4 shadow-sm">
-            <p className="text-xs font-semibold text-slate-400 md:text-sm">ROI</p>
+          <div className={`${CLASSE_CARD_KPI_MOBILE} border-l-green-500`}>
+            <p className={CLASSE_TITULO_KPI_MOBILE}>ROI</p>
             <ResponsiveMetricValue
               value={`${formatarNumero(resumo.roi)}%`}
               size="hero"
-              className={`mt-2 ${getCorROI(resumo.roi)}`}
+              className={`${CLASSE_VALOR_KPI_MOBILE} ${getCorROI(resumo.roi)}`}
             />
           </div>
 
-          <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-4 shadow-sm">
-            <p className="text-xs font-semibold text-slate-400 md:text-sm">Repasse</p>
+          <div className={`${CLASSE_CARD_KPI_MOBILE} border-l-green-500`}>
+            <p className={CLASSE_TITULO_KPI_MOBILE}>Repasse</p>
             <ResponsiveMetricValue
               value={`R$ ${formatarNumero(resumo.repasseTotal)}`}
               size="hero"
-              className={`mt-2 ${getCorRepasse(resumo.repasseTotal)}`}
+              className={`${CLASSE_VALOR_KPI_MOBILE} ${getCorRepasse(resumo.repasseTotal)}`}
             />
           </div>
 
           {operacaoEhGestor && (
-            <div className="min-w-0 rounded-[20px] border border-white/10 border-l-4 border-l-green-500 bg-[#0f172a]/85 p-4 shadow-sm">
-              <p className="text-xs font-semibold text-slate-400 md:text-sm">Repasse Líquido</p>
+            <div className={`${CLASSE_CARD_KPI_MOBILE} border-l-green-500`}>
+              <p className={CLASSE_TITULO_KPI_MOBILE}>Repasse Líquido</p>
               <ResponsiveMetricValue
                 value={`R$ ${formatarNumero(resumo.repasseLiquidoTotal)}`}
                 size="hero"
-                className={`mt-2 ${getCorRepasseLiquido(resumo.repasseLiquidoTotal)}`}
+                className={`${CLASSE_VALOR_KPI_MOBILE} ${getCorRepasseLiquido(
+                  resumo.repasseLiquidoTotal
+                )}`}
               />
             </div>
           )}
@@ -1068,49 +1084,49 @@ export default function OperacaoPage() {
                 <button
                   type="button"
                   onClick={() => setGraficoAberto((prev) => !prev)}
-                  className="mb-4 flex w-full items-center justify-between rounded-2xl border border-cyan-300/35 bg-[#0b1222]/95 px-4 py-4 text-left shadow-[0_10px_28px_rgba(14,116,144,0.2)]"
+                  className="mb-2 flex w-full items-center justify-between rounded-xl border border-cyan-300/35 bg-[#0b1222]/95 px-3 py-2 text-left shadow-[0_10px_28px_rgba(14,116,144,0.2)] md:mb-4 md:rounded-2xl md:px-4 md:py-4"
                 >
                   <div>
-                    <h2 className="text-lg font-extrabold text-slate-50 md:text-xl">
+                    <h2 className="text-sm font-extrabold text-slate-50 md:text-xl">
                       Evolução diária (USD + ROI proporcional)
                     </h2>
-                    <p className="mt-1 text-sm text-slate-200">
+                    <p className="mt-0.5 text-[10px] text-slate-200 md:mt-1 md:text-sm">
                       Barras de USD diário e ROI proporcional ao USD de cada dia.
                     </p>
                   </div>
 
-                  <span className="text-sm font-semibold text-cyan-100">
+                  <span className="text-[10px] font-semibold text-cyan-100 md:text-sm">
                     {graficoAberto ? "Fechar" : "Abrir"}
                   </span>
                 </button>
 
                 {graficoAberto && (
                   <div className="overflow-x-auto">
-                    <div className="min-w-[760px] rounded-2xl border border-slate-700/70 bg-[#0a1222] p-4 shadow-[0_10px_28px_rgba(2,6,23,0.35)]">
-                      <div className="mb-4 flex items-center justify-between">
-                        <div className="flex flex-wrap items-center gap-4">
-                          <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
-                            <span className="h-2.5 w-5 rounded-sm bg-sky-500/85" />
+                    <div className="min-w-[760px] rounded-xl border border-slate-700/70 bg-[#0a1222] p-2 shadow-[0_10px_28px_rgba(2,6,23,0.35)] md:rounded-2xl md:p-4">
+                      <div className="mb-2 flex items-start justify-between gap-2 md:mb-4 md:items-center">
+                        <div className="flex flex-wrap items-center gap-1.5 md:gap-4">
+                          <div className="flex items-center gap-1 text-[9px] font-semibold text-slate-300 md:gap-2 md:text-xs">
+                            <span className="h-2 w-3 rounded-sm bg-sky-500/85 md:h-2.5 md:w-5" />
                             USD diário
                           </div>
-                          <span className="inline-flex items-center gap-2 rounded-full border border-red-400/30 bg-red-500/10 px-2.5 py-1 text-[11px] font-semibold text-red-300">
-                            <span className="h-2 w-2 rounded-full bg-red-600" />
+                          <span className="inline-flex items-center gap-1 rounded-full border border-red-400/30 bg-red-500/10 px-2 py-0.5 text-[9px] font-semibold text-red-300 md:gap-2 md:px-2.5 md:py-1 md:text-[11px]">
+                            <span className="h-1.5 w-1.5 rounded-full bg-red-600 md:h-2 md:w-2" />
                             ROI crítico
                           </span>
-                          <span className="inline-flex items-center gap-2 rounded-full border border-rose-300/30 bg-rose-400/10 px-2.5 py-1 text-[11px] font-semibold text-rose-200">
-                            <span className="h-2 w-2 rounded-full bg-rose-400" />
+                          <span className="inline-flex items-center gap-1 rounded-full border border-rose-300/30 bg-rose-400/10 px-2 py-0.5 text-[9px] font-semibold text-rose-200 md:gap-2 md:px-2.5 md:py-1 md:text-[11px]">
+                            <span className="h-1.5 w-1.5 rounded-full bg-rose-400 md:h-2 md:w-2" />
                             ROI baixo
                           </span>
-                          <span className="inline-flex items-center gap-2 rounded-full border border-yellow-300/30 bg-yellow-400/10 px-2.5 py-1 text-[11px] font-semibold text-yellow-200">
-                            <span className="h-2 w-2 rounded-full bg-yellow-400" />
+                          <span className="inline-flex items-center gap-1 rounded-full border border-yellow-300/30 bg-yellow-400/10 px-2 py-0.5 text-[9px] font-semibold text-yellow-200 md:gap-2 md:px-2.5 md:py-1 md:text-[11px]">
+                            <span className="h-1.5 w-1.5 rounded-full bg-yellow-400 md:h-2 md:w-2" />
                             Atenção com o ROI
                           </span>
-                          <span className="inline-flex items-center gap-2 rounded-full border border-green-300/30 bg-green-500/10 px-2.5 py-1 text-[11px] font-semibold text-green-200">
-                            <span className="h-2 w-2 rounded-full bg-green-500" />
+                          <span className="inline-flex items-center gap-1 rounded-full border border-green-300/30 bg-green-500/10 px-2 py-0.5 text-[9px] font-semibold text-green-200 md:gap-2 md:px-2.5 md:py-1 md:text-[11px]">
+                            <span className="h-1.5 w-1.5 rounded-full bg-green-500 md:h-2 md:w-2" />
                             Publisher de sucesso
                           </span>
                         </div>
-                        <div className="text-[11px] font-semibold text-slate-400">
+                        <div className="text-[9px] font-semibold text-slate-400 md:text-[11px]">
                           Escala compartilhada: {formatarNumero(graficoLayout.escalaMin)} a{" "}
                           {formatarNumero(graficoLayout.escalaMax)}
                         </div>
@@ -1313,27 +1329,27 @@ export default function OperacaoPage() {
           <button
             type="button"
             onClick={() => setConfigAberta((prev) => !prev)}
-            className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-[#0b1222]/80 px-5 py-4 text-left"
+            className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-[#0b1222]/80 px-3 py-2 text-left md:rounded-2xl md:px-5 md:py-4"
           >
             <div>
-              <h2 className="text-xl font-extrabold text-slate-100 md:text-2xl">
+              <h2 className="text-sm font-extrabold text-slate-100 md:text-2xl">
                 Configurações da operação
               </h2>
-              <p className="mt-1 text-sm text-slate-400">
+              <p className="mt-0.5 text-[10px] text-slate-400 md:mt-1 md:text-sm">
                 Abra para alterar dólar e taxas desta operação
               </p>
             </div>
 
-            <span className="text-sm font-semibold text-cyan-200">
+            <span className="text-[10px] font-semibold text-cyan-200 md:text-sm">
               {configAberta ? "Fechar" : "Abrir"}
             </span>
           </button>
 
           {configAberta && (
-            <div className="mt-6">
-              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div className="mt-2 md:mt-6">
+              <div className="mb-2 flex flex-col gap-1.5 md:mb-4 md:gap-3 md:flex-row md:items-end md:justify-between">
                 <div>
-                  <p className="text-sm text-slate-400">
+                  <p className="text-[9px] leading-none text-slate-400 md:text-sm">
                     Essas configurações controlam toda a planilha desta operação.
                   </p>
                 </div>
@@ -1342,65 +1358,65 @@ export default function OperacaoPage() {
                   type="button"
                   onClick={salvarConfiguracoes}
                   disabled={salvandoConfiguracoes || carregando || !operacao}
-                  className="rounded-2xl bg-gradient-to-r from-cyan-500 to-indigo-500 px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                  className="h-5 rounded-md bg-gradient-to-r from-cyan-500 to-indigo-500 px-1.5 text-[8px] leading-none font-semibold text-white disabled:opacity-60 md:h-auto md:rounded-2xl md:px-5 md:py-3 md:text-sm"
                 >
-                  {salvandoConfiguracoes ? "Salvando configurações..." : "Salvar configurações"}
+                  {salvandoConfiguracoes ? "Salvando..." : "Salvar"}
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-                <div className="rounded-2xl border border-white/10 bg-[#0b1222]/70 p-4">
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
+              <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2 md:gap-4 xl:grid-cols-5">
+                <div className="rounded-lg border border-white/10 bg-[#0b1222]/70 p-1.5 md:rounded-2xl md:p-4">
+                  <label className="mb-0.5 block text-[9px] leading-none font-medium text-slate-300 md:mb-2 md:text-sm">
                     Cotação do dólar
                   </label>
                   <input
                     value={cotacaoDolar}
                     onChange={(e) => setCotacaoDolar(e.target.value)}
-                    className="w-full rounded-xl border border-white/20 bg-[#0f172a] px-4 py-3 text-base text-slate-100"
+                    className="h-6 w-full rounded-md border border-white/20 bg-[#0f172a] px-1.5 py-1 !text-[8px] leading-none text-slate-100 md:h-auto md:rounded-xl md:px-4 md:py-3 md:!text-base"
                   />
                 </div>
 
-                <div className="rounded-2xl border border-white/10 bg-[#0b1222]/70 p-4">
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
+                <div className="rounded-lg border border-white/10 bg-[#0b1222]/70 p-1.5 md:rounded-2xl md:p-4">
+                  <label className="mb-0.5 block text-[9px] leading-none font-medium text-slate-300 md:mb-2 md:text-sm">
                     Taxa Facebook %
                   </label>
                   <input
                     value={taxaFacebook}
                     onChange={(e) => setTaxaFacebook(e.target.value)}
-                    className="w-full rounded-xl border border-white/20 bg-[#0f172a] px-4 py-3 text-base text-slate-100"
+                    className="h-6 w-full rounded-md border border-white/20 bg-[#0f172a] px-1.5 py-1 !text-[8px] leading-none text-slate-100 md:h-auto md:rounded-xl md:px-4 md:py-3 md:!text-base"
                   />
                 </div>
 
-                <div className="rounded-2xl border border-white/10 bg-[#0b1222]/70 p-4">
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
+                <div className="rounded-lg border border-white/10 bg-[#0b1222]/70 p-1.5 md:rounded-2xl md:p-4">
+                  <label className="mb-0.5 block text-[9px] leading-none font-medium text-slate-300 md:mb-2 md:text-sm">
                     Taxa Network %
                   </label>
                   <input
                     value={taxaNetwork}
                     onChange={(e) => setTaxaNetwork(e.target.value)}
-                    className="w-full rounded-xl border border-white/20 bg-[#0f172a] px-4 py-3 text-base text-slate-100"
+                    className="h-6 w-full rounded-md border border-white/20 bg-[#0f172a] px-1.5 py-1 !text-[8px] leading-none text-slate-100 md:h-auto md:rounded-xl md:px-4 md:py-3 md:!text-base"
                   />
                 </div>
 
-                <div className="rounded-2xl border border-white/10 bg-[#0b1222]/70 p-4">
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
+                <div className="rounded-lg border border-white/10 bg-[#0b1222]/70 p-1.5 md:rounded-2xl md:p-4">
+                  <label className="mb-0.5 block text-[9px] leading-none font-medium text-slate-300 md:mb-2 md:text-sm">
                     Taxa Imposto %
                   </label>
                   <input
                     value={taxaImposto}
                     onChange={(e) => setTaxaImposto(e.target.value)}
-                    className="w-full rounded-xl border border-white/20 bg-[#0f172a] px-4 py-3 text-base text-slate-100"
+                    className="h-6 w-full rounded-md border border-white/20 bg-[#0f172a] px-1.5 py-1 !text-[8px] leading-none text-slate-100 md:h-auto md:rounded-xl md:px-4 md:py-3 md:!text-base"
                   />
                 </div>
 
-                <div className="rounded-2xl border border-white/10 bg-[#0b1222]/70 p-4">
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
+                <div className="rounded-lg border border-white/10 bg-[#0b1222]/70 p-1.5 md:rounded-2xl md:p-4">
+                  <label className="mb-0.5 block text-[9px] leading-none font-medium text-slate-300 md:mb-2 md:text-sm">
                     Repasse %
                   </label>
                   <input
                     value={repassePercentual}
                     onChange={(e) => setRepassePercentual(e.target.value)}
-                    className="w-full rounded-xl border border-white/20 bg-[#0f172a] px-4 py-3 text-base text-slate-100"
+                    className="h-6 w-full rounded-md border border-white/20 bg-[#0f172a] px-1.5 py-1 !text-[8px] leading-none text-slate-100 md:h-auto md:rounded-xl md:px-4 md:py-3 md:!text-base"
                   />
                 </div>
               </div>
@@ -1409,130 +1425,130 @@ export default function OperacaoPage() {
         </section>
         )}
 
-        <section className="mt-6 rounded-[28px] border border-white/10 bg-[#0f172a]/85 p-5 shadow-[0_20px_45px_rgba(2,6,23,0.55)] md:p-6">
+        <section className="mt-3 rounded-[18px] border border-white/10 bg-[#0f172a]/85 p-3 shadow-[0_20px_45px_rgba(2,6,23,0.55)] md:mt-6 md:rounded-[28px] md:p-6">
           <button
             type="button"
             onClick={() => setInsightsAberto((prev) => !prev)}
-            className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-[#0b1222]/80 px-5 py-4 text-left"
+            className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-[#0b1222]/80 px-2.5 py-1.5 text-left md:rounded-2xl md:px-5 md:py-4"
           >
             <div>
-              <h2 className="text-xl font-extrabold text-slate-100 md:text-2xl">📊 Insights do E-CPM</h2>
-              <p className="mt-1 text-sm text-slate-400">
+              <h2 className="text-[11px] font-extrabold text-slate-100 md:text-2xl">📊 Insights do E-CPM</h2>
+              <p className="mt-0.5 text-[9px] leading-tight text-slate-400 md:mt-1 md:text-sm">
                 Camada analítica da operação para leitura rápida de E-CPM.
               </p>
             </div>
-            <span className="text-sm font-semibold text-cyan-200">
+            <span className="text-[9px] font-semibold leading-none text-cyan-200 md:text-sm">
               {insightsAberto ? "Fechar" : "Abrir"}
             </span>
           </button>
 
           {insightsAberto && (insightsOperacao.totalDiasValidos === 0 ? (
-            <p className="mt-3 rounded-2xl border border-dashed border-white/20 bg-[#0b1222]/70 px-4 py-3 text-sm text-slate-300">
+            <p className="mt-1.5 rounded-lg border border-dashed border-white/20 bg-[#0b1222]/70 px-2 py-1.5 text-[9px] leading-tight text-slate-300 md:mt-3 md:rounded-2xl md:px-4 md:py-3 md:text-sm">
               Nenhum E-CPM preenchido no período para gerar insights.
             </p>
           ) : (
-            <div className="mt-6 space-y-4">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-                <article className="rounded-2xl border border-white/10 bg-[#0b1222]/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <div className="mt-2 space-y-1.5 md:mt-6 md:space-y-4">
+              <div className="grid grid-cols-2 gap-1.5 md:grid-cols-2 md:gap-3 xl:grid-cols-5">
+                <article className="rounded-lg border border-white/10 bg-[#0b1222]/70 p-1.5 md:rounded-2xl md:p-4">
+                  <p className="text-[8px] font-semibold uppercase tracking-[0.04em] text-slate-400 md:text-xs md:tracking-wide">
                     E-CPM médio
                   </p>
-                  <p className="mt-2 text-lg font-extrabold text-cyan-300 md:text-2xl">
+                  <p className="mt-0.5 text-[12px] font-extrabold leading-none text-cyan-300 md:mt-2 md:text-2xl">
                     {formatarNumero(insightsOperacao.mediaEcpm)}
                   </p>
-                  <p className="mt-1 text-xs text-slate-400">
+                  <p className="mt-0.5 text-[8px] leading-tight text-slate-400 md:mt-1 md:text-xs">
                     {insightsOperacao.totalDiasValidos} dia(s) com E-CPM preenchido
                   </p>
                 </article>
 
-                <article className="rounded-2xl border border-white/10 bg-[#0b1222]/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                <article className="rounded-lg border border-white/10 bg-[#0b1222]/70 p-1.5 md:rounded-2xl md:p-4">
+                  <p className="text-[8px] font-semibold uppercase tracking-[0.04em] text-slate-400 md:text-xs md:tracking-wide">
                     Melhor dia
                   </p>
-                  <p className="mt-2 text-sm font-bold text-emerald-300 md:text-base">
+                  <p className="mt-0.5 text-[9px] font-bold leading-none text-emerald-300 md:mt-2 md:text-base">
                     {insightsOperacao.melhorDia?.dataFormatada}
                   </p>
-                  <p className="mt-1 text-lg font-extrabold text-emerald-300 md:text-2xl">
+                  <p className="mt-0.5 text-[12px] font-extrabold leading-none text-emerald-300 md:mt-1 md:text-2xl">
                     {formatarNumero(insightsOperacao.melhorDia?.ecpm ?? 0)}
                   </p>
                 </article>
 
-                <article className="rounded-2xl border border-white/10 bg-[#0b1222]/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                <article className="rounded-lg border border-white/10 bg-[#0b1222]/70 p-1.5 md:rounded-2xl md:p-4">
+                  <p className="text-[8px] font-semibold uppercase tracking-[0.04em] text-slate-400 md:text-xs md:tracking-wide">
                     Pior dia
                   </p>
-                  <p className="mt-2 text-sm font-bold text-amber-300 md:text-base">
+                  <p className="mt-0.5 text-[9px] font-bold leading-none text-amber-300 md:mt-2 md:text-base">
                     {insightsOperacao.piorDia?.dataFormatada}
                   </p>
-                  <p className="mt-1 text-lg font-extrabold text-amber-300 md:text-2xl">
+                  <p className="mt-0.5 text-[12px] font-extrabold leading-none text-amber-300 md:mt-1 md:text-2xl">
                     {formatarNumero(insightsOperacao.piorDia?.ecpm ?? 0)}
                   </p>
                 </article>
 
-                <article className="rounded-2xl border border-white/10 bg-[#0b1222]/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                <article className="rounded-lg border border-white/10 bg-[#0b1222]/70 p-1.5 md:rounded-2xl md:p-4">
+                  <p className="text-[8px] font-semibold uppercase tracking-[0.04em] text-slate-400 md:text-xs md:tracking-wide">
                     Melhor semana
                   </p>
                   {insightsOperacao.melhorSemanaDoMes ? (
                     <>
-                      <p className="mt-2 text-sm font-bold text-cyan-300 md:text-base">
+                      <p className="mt-0.5 text-[9px] font-bold leading-none text-cyan-300 md:mt-2 md:text-base">
                         {insightsOperacao.melhorSemanaDoMes.semanaLabel}
                       </p>
-                      <p className="mt-1 text-lg font-extrabold text-cyan-300 md:text-2xl">
+                      <p className="mt-0.5 text-[12px] font-extrabold leading-none text-cyan-300 md:mt-1 md:text-2xl">
                         {formatarNumero(insightsOperacao.melhorSemanaDoMes.mediaEcpm)}
                       </p>
                       <p
-                        className={`mt-1 text-xs font-semibold ${
+                        className={`mt-0.5 text-[8px] font-semibold leading-tight ${
                           insightsOperacao.melhorSemanaDoMes.percentualVsMediaMes >= 0
                             ? "text-emerald-300"
                             : "text-rose-300"
-                        }`}
+                        } md:mt-1 md:text-xs`}
                       >
                         {insightsOperacao.melhorSemanaDoMes.percentualVsMediaMes >= 0 ? "+" : ""}
                         {formatarNumero(insightsOperacao.melhorSemanaDoMes.percentualVsMediaMes)}% vs média
                       </p>
                     </>
                   ) : (
-                    <p className="mt-2 text-sm text-slate-400">
+                    <p className="mt-0.5 text-[9px] leading-tight text-slate-400 md:mt-2 md:text-sm">
                       Dados insuficientes para identificar a melhor semana.
                     </p>
                   )}
                 </article>
 
-                <article className="rounded-2xl border border-white/10 bg-[#0b1222]/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                <article className="rounded-lg border border-white/10 bg-[#0b1222]/70 p-1.5 md:rounded-2xl md:p-4">
+                  <p className="text-[8px] font-semibold uppercase tracking-[0.04em] text-slate-400 md:text-xs md:tracking-wide">
                     E-CPM atual
                   </p>
                   {insightsOperacao.ecpmAtualVsMedia ? (
                     <>
-                      <p className="mt-2 text-sm font-bold text-slate-200 md:text-base">
+                      <p className="mt-0.5 text-[9px] font-bold leading-none text-slate-200 md:mt-2 md:text-base">
                         {insightsOperacao.ecpmAtualVsMedia.dataFormatada}
                       </p>
-                      <p className="mt-1 text-lg font-extrabold text-cyan-300 md:text-2xl">
+                      <p className="mt-0.5 text-[12px] font-extrabold leading-none text-cyan-300 md:mt-1 md:text-2xl">
                         {formatarNumero(insightsOperacao.ecpmAtualVsMedia.ecpmAtual)}
                       </p>
                       <p
-                        className={`mt-1 text-xs font-semibold ${
+                        className={`mt-0.5 text-[8px] font-semibold leading-tight ${
                           insightsOperacao.ecpmAtualVsMedia.percentualVsMediaMes >= 0
                             ? "text-emerald-300"
                             : "text-rose-300"
-                        }`}
+                        } md:mt-1 md:text-xs`}
                       >
                         {insightsOperacao.ecpmAtualVsMedia.percentualVsMediaMes >= 0 ? "+" : ""}
                         {formatarNumero(insightsOperacao.ecpmAtualVsMedia.percentualVsMediaMes)}% vs mês
                       </p>
                     </>
                   ) : (
-                    <p className="mt-2 text-sm text-slate-400">
+                    <p className="mt-0.5 text-[9px] leading-tight text-slate-400 md:mt-2 md:text-sm">
                       Sem dados no mês
                     </p>
                   )}
                 </article>
               </div>
 
-              <article className="rounded-2xl border border-white/10 bg-[#0b1222]/70 p-4">
-                <div className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-relaxed">
-                  <h3 className="font-extrabold uppercase tracking-wide text-slate-300">
+              <article className="rounded-lg border border-white/10 bg-[#0b1222]/70 p-1.5 md:rounded-2xl md:p-4">
+                <div className="flex flex-wrap items-center gap-1 text-[9px] font-semibold leading-tight md:gap-2 md:text-sm md:leading-relaxed">
+                  <h3 className="font-extrabold uppercase tracking-[0.04em] text-slate-300 md:tracking-wide">
                     TOP 5 DIAS DE E-CPM :
                   </h3>
                   <p>
@@ -1541,31 +1557,29 @@ export default function OperacaoPage() {
                         <span className="text-slate-100">{item.dataFormatada}</span>
                         <span className="text-slate-300"> = </span>
                         <span className="text-emerald-300">{formatarNumero(item.ecpm)}</span>
-                        {index < insightsOperacao.top5DiasEcpm.length - 1 && (
-                          <span className="px-2 text-slate-500">/</span>
-                        )}
+                        {index < insightsOperacao.top5DiasEcpm.length - 1 && <span className="px-0.5 text-slate-500 md:px-2">/</span>}
                       </span>
                     ))}
                   </p>
                 </div>
               </article>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <article className="rounded-2xl border border-white/10 bg-[#0b1222]/70 p-4">
-                  <h3 className="text-sm font-extrabold uppercase tracking-wide text-slate-300 md:text-base">
+              <div className="grid grid-cols-2 gap-1.5 md:grid-cols-2 md:gap-4">
+                <article className="rounded-lg border border-white/10 bg-[#0b1222]/70 p-1.5 md:rounded-2xl md:p-4">
+                  <h3 className="text-[9px] font-extrabold uppercase tracking-[0.04em] text-slate-300 md:text-base md:tracking-wide">
                     🔥 Melhores dias para escalar (Média do mês)
                   </h3>
 
-                  <ul className="mt-3 space-y-2">
+                  <ul className="mt-1.5 space-y-1 md:mt-3 md:space-y-2">
                     {insightsOperacao.melhoresDiasSemana.map((item, index) => (
                       <li
                         key={`${item.diaSemana}-${item.mediaEcpm}-${index}`}
-                        className="flex items-center justify-between rounded-xl border border-white/10 bg-[#0f172a]/70 px-3 py-2"
+                        className="flex items-center justify-between rounded-md border border-white/10 bg-[#0f172a]/70 px-1.5 py-1 md:rounded-xl md:px-3 md:py-2"
                       >
-                        <span className="text-sm font-semibold text-slate-100">
+                        <span className="text-[9px] font-semibold leading-none text-slate-100 md:text-sm">
                           {item.diaSemana}
                         </span>
-                        <span className="text-sm font-extrabold text-cyan-300">
+                        <span className="text-[9px] font-extrabold leading-none text-cyan-300 md:text-sm">
                           {formatarNumero(item.mediaEcpm)}
                         </span>
                       </li>
@@ -1573,21 +1587,21 @@ export default function OperacaoPage() {
                   </ul>
                 </article>
 
-                <article className="rounded-2xl border border-white/10 bg-[#0b1222]/70 p-4">
-                  <h3 className="text-sm font-extrabold uppercase tracking-wide text-slate-300 md:text-base">
+                <article className="rounded-lg border border-white/10 bg-[#0b1222]/70 p-1.5 md:rounded-2xl md:p-4">
+                  <h3 className="text-[9px] font-extrabold uppercase tracking-[0.04em] text-slate-300 md:text-base md:tracking-wide">
                     ⚠ Dias que precisam de atenção
                   </h3>
 
-                  <ul className="mt-3 space-y-2">
+                  <ul className="mt-1.5 space-y-1 md:mt-3 md:space-y-2">
                     {insightsOperacao.pioresDiasSemana.map((item, index) => (
                       <li
                         key={`${item.diaSemana}-${item.mediaEcpm}-${index}`}
-                        className="flex items-center justify-between rounded-xl border border-white/10 bg-[#0f172a]/70 px-3 py-2"
+                        className="flex items-center justify-between rounded-md border border-white/10 bg-[#0f172a]/70 px-1.5 py-1 md:rounded-xl md:px-3 md:py-2"
                       >
-                        <span className="text-sm font-semibold text-slate-100">
+                        <span className="text-[9px] font-semibold leading-none text-slate-100 md:text-sm">
                           {item.diaSemana}
                         </span>
-                        <span className="text-sm font-extrabold text-amber-300">
+                        <span className="text-[9px] font-extrabold leading-none text-amber-300 md:text-sm">
                           {formatarNumero(item.mediaEcpm)}
                         </span>
                       </li>
@@ -1599,50 +1613,50 @@ export default function OperacaoPage() {
           ))}
         </section>
 
-        <section className="mt-6 rounded-[28px] border border-white/10 bg-[#0f172a]/85 p-5 shadow-[0_20px_45px_rgba(2,6,23,0.55)] md:p-6">
-          <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+        <section className="mt-3 rounded-[18px] border border-white/10 bg-[#0f172a]/85 p-3 shadow-[0_20px_45px_rgba(2,6,23,0.55)] md:mt-6 md:rounded-[28px] md:p-6">
+          <div className="mb-2 flex flex-col gap-1.5 md:mb-4 md:gap-2 md:flex-row md:items-end md:justify-between">
             <div>
-              <h2 className="text-xl font-extrabold text-slate-100 md:text-2xl">
+              <h2 className="text-[11px] font-extrabold text-slate-100 md:text-2xl">
                 Lançamentos diários
               </h2>
-              <p className="mt-1 text-sm text-slate-400">
+              <p className="mt-0.5 text-[9px] leading-tight text-slate-400 md:mt-1 md:text-sm">
                 Preencha Facebook, USD e E-CPM por dia. O sistema calcula o restante automaticamente.
               </p>
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-[#0b1222]/80 px-4 py-3 text-sm text-slate-300">
+            <div className="rounded-lg border border-white/10 bg-[#0b1222]/80 px-2 py-1.5 text-[9px] leading-tight text-slate-300 md:rounded-2xl md:px-4 md:py-3 md:text-sm">
               Enter salva e avança. Setas sobem e descem entre os dias.
             </div>
           </div>
 
-          <div className="max-h-[70vh] overflow-auto rounded-2xl">
-            <table className="w-full border-separate border-spacing-y-2 text-[11px] md:text-xs xl:text-sm">
+          <div className="max-h-[70vh] overflow-auto rounded-lg md:rounded-2xl">
+            <table className="w-full border-separate border-spacing-y-1 text-[9px] md:border-spacing-y-2 md:text-xs xl:text-sm">
               <thead className="sticky top-0 z-10">
                 <tr className="text-slate-400">
-                  <th className="bg-[#0b1222] px-2 py-3 text-left font-semibold">Dia</th>
-                  <th className="bg-[#0b1222] px-2 py-3 text-center font-semibold">Facebook</th>
+                  <th className="bg-[#0b1222] px-1 py-2 text-left text-[8px] font-semibold leading-none md:px-2 md:py-3 md:text-xs">Dia</th>
+                  <th className="bg-[#0b1222] px-1 py-2 text-center text-[8px] font-semibold leading-none md:px-2 md:py-3 md:text-xs">Facebook</th>
                   {!modoAuxiliar && (
                     <>
-                      <th className="bg-[#0b1222] px-2 py-3 text-center font-semibold">Tx. Face</th>
-                      <th className="bg-[#0b1222] px-2 py-3 text-center font-semibold">Net</th>
-                      <th className="bg-[#0b1222] px-2 py-3 text-center font-semibold">Imp</th>
-                      <th className="bg-[#0b1222] px-2 py-3 text-center font-semibold">Custo</th>
+                      <th className="bg-[#0b1222] px-1 py-2 text-center text-[8px] font-semibold leading-none md:px-2 md:py-3 md:text-xs">Tx. Face</th>
+                      <th className="bg-[#0b1222] px-1 py-2 text-center text-[8px] font-semibold leading-none md:px-2 md:py-3 md:text-xs">Net</th>
+                      <th className="bg-[#0b1222] px-1 py-2 text-center text-[8px] font-semibold leading-none md:px-2 md:py-3 md:text-xs">Imp</th>
+                      <th className="bg-[#0b1222] px-1 py-2 text-center text-[8px] font-semibold leading-none md:px-2 md:py-3 md:text-xs">Custo</th>
                     </>
                   )}
-                  <th className="bg-[#0b1222] px-2 py-3 text-center font-semibold">USD</th>
-                  <th className="bg-[#0b1222] px-2 py-3 text-center font-semibold">E-CPM</th>
+                  <th className="bg-[#0b1222] px-1 py-2 text-center text-[8px] font-semibold leading-none md:px-2 md:py-3 md:text-xs">USD</th>
+                  <th className="bg-[#0b1222] px-1 py-2 text-center text-[8px] font-semibold leading-none md:px-2 md:py-3 md:text-xs">E-CPM</th>
                   {!modoAuxiliar && (
                     <>
-                      <th className="bg-[#0b1222] px-2 py-3 text-center font-semibold">Real</th>
-                      <th className="bg-[#0b1222] px-2 py-3 text-center font-semibold">Lucro</th>
+                      <th className="bg-[#0b1222] px-1 py-2 text-center text-[8px] font-semibold leading-none md:px-2 md:py-3 md:text-xs">Real</th>
+                      <th className="bg-[#0b1222] px-1 py-2 text-center text-[8px] font-semibold leading-none md:px-2 md:py-3 md:text-xs">Lucro</th>
                     </>
                   )}
-                  <th className="bg-[#0b1222] px-2 py-3 text-center font-semibold">ROI</th>
+                  <th className="bg-[#0b1222] px-1 py-2 text-center text-[8px] font-semibold leading-none md:px-2 md:py-3 md:text-xs">ROI</th>
                   {!modoAuxiliar && (
-                    <th className="bg-[#0b1222] px-2 py-3 text-center font-semibold">Rep</th>
+                    <th className="bg-[#0b1222] px-1 py-2 text-center text-[8px] font-semibold leading-none md:px-2 md:py-3 md:text-xs">Rep</th>
                   )}
                   {!modoAuxiliar && operacaoEhGestor && (
-                    <th className="bg-[#0b1222] px-2 py-3 text-center font-semibold">
+                    <th className="bg-[#0b1222] px-1 py-2 text-center text-[8px] font-semibold leading-none md:px-2 md:py-3 md:text-xs">
                       Rep Liq
                     </th>
                   )}
@@ -1682,11 +1696,11 @@ export default function OperacaoPage() {
                           : "bg-[#0f172a]/70"
                       }
                     >
-                      <td className="rounded-l-2xl px-2 py-3 font-medium text-slate-200">
+                      <td className="rounded-l-lg whitespace-nowrap px-1 py-2 text-[9px] font-medium leading-none text-slate-200 md:rounded-l-2xl md:px-2 md:py-3 md:text-base md:leading-normal">
                         {linha.diaSemana} - {linha.dataFormatada}
                       </td>
 
-                      <td className="px-2 py-3">
+                      <td className="px-1 py-2 md:px-2 md:py-3">
                         <input
                           ref={(el) => {
                             faceRefs.current[linha.diaNumero] = el;
@@ -1696,31 +1710,31 @@ export default function OperacaoPage() {
                           onChange={(e) => atualizarCampo(linha.diaNumero, "face", e.target.value)}
                           onKeyDown={(e) => tratarTeclaCampo(e, linha.diaNumero, "face")}
                           onBlur={() => tratarBlurCampo(linha.diaNumero)}
-                          className="w-full rounded-lg border border-white/20 bg-[#0b1222] px-2 py-2 text-center text-red-600"
+                          className="min-w-[72px] w-full rounded-md border border-white/20 bg-[#0b1222] px-1 py-1 text-center !text-[8px] font-semibold leading-none text-red-500 md:min-w-0 md:rounded-lg md:px-2 md:py-2 md:!text-[16px] md:font-normal md:leading-normal"
                         />
                       </td>
 
                       {!modoAuxiliar && (
                         <>
-                          <td className="px-2 py-3 text-center text-red-600">
+                          <td className="px-1 py-2 text-center text-[9px] leading-none text-red-600 md:px-2 md:py-3 md:text-base">
                             {formatarNumero(txFace)}
                           </td>
 
-                          <td className="px-2 py-3 text-center text-slate-300">
+                          <td className="px-1 py-2 text-center text-[9px] leading-none text-slate-300 md:px-2 md:py-3 md:text-base">
                             {formatarNumero(net)}
                           </td>
 
-                          <td className="px-2 py-3 text-center text-slate-300">
+                          <td className="px-1 py-2 text-center text-[9px] leading-none text-slate-300 md:px-2 md:py-3 md:text-base">
                             {formatarNumero(imp)}
                           </td>
 
-                          <td className="px-2 py-3 text-center text-red-600">
+                          <td className="px-1 py-2 text-center text-[9px] leading-none text-red-600 md:px-2 md:py-3 md:text-base">
                             {formatarNumero(custo)}
                           </td>
                         </>
                       )}
 
-                      <td className="px-2 py-3">
+                      <td className="px-1 py-2 md:px-2 md:py-3">
                         <input
                           ref={(el) => {
                             usdRefs.current[linha.diaNumero] = el;
@@ -1730,13 +1744,13 @@ export default function OperacaoPage() {
                           onChange={(e) => atualizarCampo(linha.diaNumero, "usd", e.target.value)}
                           onKeyDown={(e) => tratarTeclaCampo(e, linha.diaNumero, "usd")}
                           onBlur={() => tratarBlurCampo(linha.diaNumero)}
-                          className={`w-full rounded-lg border border-white/20 bg-[#0b1222] px-2 py-2 text-center ${
-                            operacaoEhGestor ? "text-sky-300" : "text-blue-600"
+                          className={`min-w-[72px] w-full rounded-md border border-white/20 bg-[#0b1222] px-1 py-1 text-center !text-[8px] font-semibold leading-none md:min-w-0 md:rounded-lg md:px-2 md:py-2 md:!text-[16px] md:font-normal md:leading-normal ${
+                            operacaoEhGestor ? "text-sky-300" : "text-blue-500"
                           }`}
                         />
                       </td>
 
-                      <td className="px-2 py-3">
+                      <td className="px-1 py-2 md:px-2 md:py-3">
                         <input
                           ref={(el) => {
                             ecpmRefs.current[linha.diaNumero] = el;
@@ -1746,29 +1760,29 @@ export default function OperacaoPage() {
                           onChange={(e) => atualizarCampo(linha.diaNumero, "ecpm", e.target.value)}
                           onKeyDown={(e) => tratarTeclaCampo(e, linha.diaNumero, "ecpm")}
                           onBlur={() => tratarBlurCampo(linha.diaNumero)}
-                          className="w-full rounded-lg border border-white/20 bg-[#0b1222] px-2 py-2 text-center text-violet-200"
+                          className="min-w-[72px] w-full rounded-md border border-white/20 bg-[#0b1222] px-1 py-1 text-center !text-[8px] font-semibold leading-none text-violet-200 md:min-w-0 md:rounded-lg md:px-2 md:py-2 md:!text-[16px] md:font-normal md:leading-normal"
                         />
                       </td>
 
                       {!modoAuxiliar && (
                         <>
                           <td
-                            className={`px-2 py-3 text-center ${
+                            className={`px-1 py-2 text-center text-[9px] leading-none md:px-2 md:py-3 md:text-base ${
                               operacaoEhGestor ? "text-sky-300" : "text-blue-600"
                             }`}
                           >
                             {formatarNumero(real)}
                           </td>
 
-                          <td className="px-2 py-3 text-center text-green-600">
+                          <td className="px-1 py-2 text-center text-[9px] leading-none text-green-600 md:px-2 md:py-3 md:text-base">
                             {formatarNumero(lucro)}
                           </td>
                         </>
                       )}
 
                       <td
-                        className={`px-2 py-3 text-center ${getCorROI(roi)} ${
-                          modoAuxiliar ? "rounded-r-2xl" : ""
+                        className={`px-1 py-2 text-center text-[9px] leading-none md:px-2 md:py-3 md:text-base ${getCorROI(roi)} ${
+                          modoAuxiliar ? "rounded-r-lg md:rounded-r-2xl" : ""
                         }`}
                       >
                         {formatarNumero(roi)}%
@@ -1776,7 +1790,7 @@ export default function OperacaoPage() {
 
                       {!modoAuxiliar && (
                         <td
-                          className={`px-2 py-3 text-center ${getCorRepasse(rep)}`}
+                          className={`px-1 py-2 text-center text-[9px] leading-none md:px-2 md:py-3 md:text-base ${getCorRepasse(rep)}`}
                         >
                           {formatarNumero(rep)}
                         </td>
@@ -1784,7 +1798,7 @@ export default function OperacaoPage() {
 
                       {!modoAuxiliar && operacaoEhGestor && (
                         <td
-                          className={`rounded-r-2xl px-2 py-3 text-center ${getCorRepasseLiquido(
+                          className={`rounded-r-lg px-1 py-2 text-center text-[9px] leading-none md:rounded-r-2xl md:px-2 md:py-3 md:text-base ${getCorRepasseLiquido(
                             repLiq
                           )}`}
                         >

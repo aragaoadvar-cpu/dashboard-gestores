@@ -13,6 +13,7 @@ type Props = {
   variant?: Variant;
   align?: Align;
   className?: string;
+  compactMobile?: boolean;
 };
 
 const VARIANT_CLASSES: Record<
@@ -64,6 +65,7 @@ export default function MonthYearPicker({
   variant = "dark",
   align = "left",
   className = "",
+  compactMobile = false,
 }: Props) {
   const hoje = useMemo(() => new Date(), []);
   const periodos = useMemo(() => listarPeriodosDisponiveis(hoje), [hoje]);
@@ -79,6 +81,26 @@ export default function MonthYearPicker({
   }, [ano]);
 
   const classes = VARIANT_CLASSES[variant];
+  const triggerClasses = compactMobile
+    ? "min-h-[24px] w-fit rounded-md px-2 py-1 !text-[11px] !leading-none md:min-h-[44px] md:w-auto md:rounded-2xl md:px-5 md:py-3 md:text-base"
+    : "min-h-[44px] w-full rounded-2xl px-4 py-3 text-sm md:w-auto md:px-5 md:text-base";
+  const panelClasses = compactMobile
+    ? "mt-1.5 w-[min(18rem,calc(100vw-1rem))] rounded-xl p-2 md:mt-2 md:w-[min(22rem,calc(100vw-2rem))] md:rounded-3xl md:p-4"
+    : "mt-2 w-[min(22rem,calc(100vw-2rem))] rounded-3xl p-4";
+  const helperTextClasses = compactMobile
+    ? "text-[9px] tracking-[0.12em] md:text-xs md:tracking-[0.18em]"
+    : "text-xs tracking-[0.18em]";
+  const yearListClasses = compactMobile ? "mt-2 gap-1" : "mt-3 gap-2";
+  const yearButtonClasses = compactMobile
+    ? "rounded-md px-2 py-1 text-[9px] leading-none md:rounded-2xl md:px-3 md:py-2 md:text-sm"
+    : "rounded-2xl px-3 py-2 text-sm";
+  const monthTitleClasses = compactMobile
+    ? "mt-3 text-[9px] tracking-[0.12em] md:mt-5 md:text-xs md:tracking-[0.18em]"
+    : "mt-5 text-xs tracking-[0.18em]";
+  const monthGridClasses = compactMobile ? "mt-2 gap-1" : "mt-3 gap-2";
+  const monthButtonClasses = compactMobile
+    ? "rounded-md px-2 py-1 text-[9px] leading-none md:rounded-2xl md:px-3 md:py-3 md:text-sm"
+    : "rounded-2xl px-3 py-3 text-sm";
   const mesesDoAno = MESES.map((item) => ({
     ...item,
     selecionado: item.valor === mes && anoEmFoco === ano,
@@ -89,27 +111,27 @@ export default function MonthYearPicker({
       <button
         type="button"
         onClick={() => setAberto((prev) => !prev)}
-        className={`min-h-[44px] w-full rounded-2xl border px-4 py-3 text-left text-sm font-semibold transition md:w-auto md:px-5 md:text-base ${classes.button}`}
+        className={`border text-left font-medium transition ${triggerClasses} ${classes.button}`}
       >
         Período: {formatarMesAnoCurto(mes, ano)}
       </button>
 
       {aberto && (
         <div
-          className={`absolute top-full z-30 mt-2 w-[min(22rem,calc(100vw-2rem))] rounded-3xl border p-4 ${getAlignClass(
+          className={`absolute top-full z-30 border ${panelClasses} ${getAlignClass(
             align
           )} ${classes.panel}`}
         >
-          <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${classes.helper}`}>
+          <p className={`font-semibold uppercase ${helperTextClasses} ${classes.helper}`}>
             1. Escolha o ano
           </p>
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className={`flex flex-wrap ${yearListClasses}`}>
             {anosDisponiveis.map((anoItem) => (
               <button
                 key={anoItem}
                 type="button"
                 onClick={() => setAnoEmFoco(anoItem)}
-                className={`rounded-2xl border px-3 py-2 text-sm font-semibold transition ${
+                className={`border font-medium transition ${yearButtonClasses} ${
                   anoItem === anoEmFoco ? classes.yearActive : classes.yearIdle
                 }`}
               >
@@ -118,10 +140,10 @@ export default function MonthYearPicker({
             ))}
           </div>
 
-          <p className={`mt-5 text-xs font-semibold uppercase tracking-[0.18em] ${classes.helper}`}>
+          <p className={`font-semibold uppercase ${monthTitleClasses} ${classes.helper}`}>
             2. Escolha o mês
           </p>
-          <div className="mt-3 grid grid-cols-3 gap-2">
+          <div className={`grid grid-cols-3 ${monthGridClasses}`}>
             {mesesDoAno.map((mesItem) => (
               <button
                 key={mesItem.valor}
@@ -130,7 +152,7 @@ export default function MonthYearPicker({
                   onChange(mesItem.valor, anoEmFoco);
                   setAberto(false);
                 }}
-                className={`rounded-2xl border px-3 py-3 text-sm font-semibold transition ${
+                className={`border font-medium transition ${monthButtonClasses} ${
                   mesItem.selecionado ? classes.monthActive : classes.monthIdle
                 }`}
               >
