@@ -1,35 +1,12 @@
-import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
 import GestoresPageClient from "./GestoresPageClient";
+import { redirect } from "next/navigation";
+import { requireDashboardModuleAccess } from "@/lib/platform-access/server";
 
 export default async function Page() {
-  const supabase = await createClient();
+  const { roleUsuario } = await requireDashboardModuleAccess();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  const { data: profileData, error: profileError } = await supabase
-    .from("profiles")
-    .select("role, nome")
-    .eq("id", user.id)
-    .single();
-
-  if (profileError || !profileData) {
-    redirect("/");
-  }
-
-  if (profileData.role !== "admin" && profileData.role !== "dono") {
-    redirect("/");
-  }
-
-  const nomeAtual = profileData.nome?.trim() ?? "";
-  if (!nomeAtual) {
-    redirect("/completar-cadastro");
+  if (roleUsuario !== "admin" && roleUsuario !== "dono") {
+    redirect("/inicio");
   }
 
   return <GestoresPageClient />;

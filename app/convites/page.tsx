@@ -1,39 +1,12 @@
-import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
 import ConvitesPageClient from "./ConvitesPageClient";
+import { requireDashboardModuleAccess } from "@/lib/platform-access/server";
+import { redirect } from "next/navigation";
 
 export default async function Page() {
-  const supabase = await createClient();
+  const { roleUsuario } = await requireDashboardModuleAccess();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  const { data: profileData, error: profileError } = await supabase
-    .from("profiles")
-    .select("role, nome")
-    .eq("id", user.id)
-    .single();
-
-  if (profileError || !profileData) {
-    redirect("/");
-  }
-
-  if (
-    profileData.role !== "admin" &&
-    profileData.role !== "dono" &&
-    profileData.role !== "gestor"
-  ) {
-    redirect("/");
-  }
-
-  const nomeAtual = profileData.nome?.trim() ?? "";
-  if (!nomeAtual) {
-    redirect("/completar-cadastro");
+  if (roleUsuario !== "admin" && roleUsuario !== "dono" && roleUsuario !== "gestor") {
+    redirect("/inicio");
   }
 
   return <ConvitesPageClient />;

@@ -15,12 +15,16 @@ export default async function Page() {
 
   const { data: profileData, error: profileError } = await supabase
     .from("profiles")
-    .select("nome")
+    .select("nome, is_active")
     .eq("id", user.id)
     .single();
 
   if (profileError) {
     redirect("/");
+  }
+
+  if (profileData?.is_active === false) {
+    redirect("/conta-desativada");
   }
 
   const nomeAtual = profileData?.nome?.trim() ?? "";

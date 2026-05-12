@@ -1,0 +1,268 @@
+import { getPlatformServiceSupabaseClient } from "./service";
+import {
+  isStoredModuleKey,
+  resolveModulePermissions,
+  type ModulePermissionsView,
+  type StoredModuleKey,
+  type ManageableModuleKey,
+} from "./modules";
+
+export type ModuleKey = ManageableModuleKey;
+export type ManagedRole = "dono" | "admin" | "gestor" | "auxiliar" | null;
+
+export type ManagedUserRow = {
+  user_id: string;
+  nome: string | null;
+  email: string | null;
+  role: ManagedRole;
+  is_active: boolean;
+  modules: ModulePermissionsView;
+};
+
+function normalizeEmail(email: string | null | undefined) {
+  return (email ?? "").trim().toLowerCase();
+}
+
+function parseRole(value: string | null | undefined): ManagedRole {
+  if (value === "dono" || value === "admin" || value === "gestor" || value === "auxiliar") {
+    return value;
+  }
+  return null;
+}
+
+async function getProfilesWithEmailSafe(ids: string[]) {
+  const serviceSupabase = getPlatformServiceSupabaseClient();
+  if (!serviceSupabase) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY não configurada no servidor.");
+  }
+
+  if (ids.length === 0) {
+    return [] as Array<{
+      id: string;
+      nome: string | null;
+      role: string | null;
+      email: string | null;
+      is_active: boolean | null;
+    }>;
+  }
+
+  const withEmail = await serviceSupabase
+    .from("profiles")
+    .select("id, nome, role, email, is_active")
+    .in("id", ids);
+
+  if (!withEmail.error) {
+    return (withEmail.data ?? []) as Array<{
+      id: string;
+      nome: string | null;
+      role: string | null;
+      email: string | null;
+      is_active: boolean | null;
+    }>;
+  }
+
+  const fallback = await serviceSupabase
+    .from("profiles")
+    .select("id, nome, role, is_active")
+    .in("id", ids);
+
+  if (fallback.error) {
+    throw new Error(`Erro ao carregar perfis: ${fallback.error.message}`);
+  }
+
+  return (fallback.data ?? []).map((item) => ({
+    ...item,
+    email: null,
+  })) as Array<{
+    id: string;
+    nome: string | null;
+    role: string | null;
+    email: string | null;
+    is_active: boolean | null;
+  }>;
+}
+
+export async function listManageableUsers({
+  viewerUserId,
+  viewerRole,
+}: {
+  viewerUserId: string;
+  viewerRole: ManagedRole;
+}) {
+  const serviceSupabase = getPlatformServiceSupabaseClient();
+  if (!serviceSupabase) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY não configurada no servidor.");
+  }
+
+  const manageableUserIds = new Set<string>();
+  const invitedEmails = new Set<string>();
+
+  if (viewerRole === "dono") {
+    const { data: allProfiles, error: allProfilesError } = await serviceSupabase
+      .from("profiles")
+      .select("id");
+
+    if (allProfilesError) {
+      throw new Error(`Erro ao listar usuários: ${allProfilesError.message}`);
+    }
+
+    for (const item of allProfiles ?? []) {
+      manageableUserIds.add(item.id);
+    }
+  } else if (viewerRole === "admin") {
+    const { data: gestoresData, error: gestoresError } = await serviceSupabase
+      .from("admin_gestores")
+      .select("gestor_user_id")
+      .eq("admin_user_id", viewerUserId)
+      .eq("status", "ativo");
+
+    if (gestoresError) {
+      throw new Error(`Erro ao listar gestores do admin: ${gestoresError.message}`);
+    }
+
+    const gestorIds = (gestoresData ?? []).map((item) => item.gestor_user_id);
+    for (const gestorId of gestorIds) manageableUserIds.add(gestorId);
+
+    const ownerIds = [viewerUserId, ...gestorIds];
+    const { data: auxiliaresData, error: auxiliaresError } = await serviceSupabase
+      .from("auxiliar_vinculos")
+      .select("auxiliar_user_id")
+      .in("owner_user_id", ownerIds)
+      .eq("status", "ativo");
+
+    if (auxiliaresError) {
+      throw new Error(`Erro ao listar auxiliares do admin: ${auxiliaresError.message}`);
+    }
+
+    for (const item of auxiliaresData ?? []) {
+      manageableUserIds.add(item.auxiliar_user_id);
+    }
+
+    const { data: platformInvites, error: platformInvitesError } = await serviceSupabase
+      .from("platform_user_invitations")
+      .select("email")
+      .eq("invited_by", viewerUserId);
+
+    if (platformInvitesError) {
+      throw new Error(`Erro ao listar convites da plataforma: ${platformInvitesError.message}`);
+    }
+
+    for (const invite of platformInvites ?? []) {
+      invitedEmails.add(normalizeEmail(invite.email));
+    }
+
+    const { data: financeShares, error: financeSharesError } = await serviceSupabase
+      .from("financeiro_shared_access")
+      .select("shared_user_id, invited_email, invited_by")
+      .in("invited_by", ownerIds);
+
+    if (financeSharesError) {
+      throw new Error(`Erro ao listar compartilhamentos financeiros: ${financeSharesError.message}`);
+    }
+
+    for (const share of financeShares ?? []) {
+      if (share.shared_user_id) {
+        manageableUserIds.add(share.shared_user_id);
+      }
+      invitedEmails.add(normalizeEmail(share.invited_email));
+    }
+
+    if (invitedEmails.size > 0) {
+      const withEmail = await serviceSupabase
+        .from("profiles")
+        .select("id, email");
+
+      if (!withEmail.error) {
+        for (const profile of withEmail.data ?? []) {
+          const normalized = normalizeEmail(profile.email);
+          if (normalized && invitedEmails.has(normalized)) {
+            manageableUserIds.add(profile.id);
+          }
+        }
+      }
+    }
+  } else {
+    return [];
+  }
+
+  const profiles = await getProfilesWithEmailSafe(Array.from(manageableUserIds));
+  const profilesById = new Map(profiles.map((item) => [item.id, item]));
+  const finalUserIds = Array.from(manageableUserIds);
+
+  const { data: permissionsData, error: permissionsError } = await serviceSupabase
+    .from("user_module_permissions")
+    .select("user_id, module_key, enabled")
+    .in("user_id", finalUserIds);
+
+  if (permissionsError) {
+    throw new Error(`Erro ao carregar permissões dos módulos: ${permissionsError.message}`);
+  }
+
+  const permissionsByUser = new Map<string, ModulePermissionsView>();
+
+  for (const userId of finalUserIds) {
+    permissionsByUser.set(userId, {
+      dashboard_ads: false,
+      aliado_financeiro_pessoal: false,
+      aliado_financeiro_empresarial: false,
+    });
+  }
+
+  const groupedPermissions = new Map<
+    string,
+    Array<{ module_key: StoredModuleKey; enabled: boolean }>
+  >();
+
+  for (const item of permissionsData ?? []) {
+    if (!isStoredModuleKey(item.module_key)) continue;
+    const current = groupedPermissions.get(item.user_id) ?? [];
+    current.push({
+      module_key: item.module_key,
+      enabled: Boolean(item.enabled),
+    });
+    groupedPermissions.set(item.user_id, current);
+  }
+
+  for (const [userId, items] of groupedPermissions) {
+    permissionsByUser.set(userId, resolveModulePermissions(items));
+  }
+
+  return finalUserIds
+    .map((userId) => {
+      const profile = profilesById.get(userId);
+      if (!profile) return null;
+
+      return {
+        user_id: userId,
+        nome: profile.nome ?? null,
+        email: profile.email ?? null,
+        role: parseRole(profile.role),
+        is_active: profile.is_active !== false,
+        modules:
+          permissionsByUser.get(userId) ?? {
+            dashboard_ads: false,
+            aliado_financeiro_pessoal: false,
+            aliado_financeiro_empresarial: false,
+          },
+      };
+    })
+    .filter((item): item is ManagedUserRow => Boolean(item))
+    .sort((a, b) => {
+      const nomeA = (a.nome ?? a.email ?? "").toLowerCase();
+      const nomeB = (b.nome ?? b.email ?? "").toLowerCase();
+      return nomeA.localeCompare(nomeB, "pt-BR");
+    });
+}
+
+export async function findManageableUser({
+  viewerUserId,
+  viewerRole,
+  targetUserId,
+}: {
+  viewerUserId: string;
+  viewerRole: ManagedRole;
+  targetUserId: string;
+}) {
+  const users = await listManageableUsers({ viewerUserId, viewerRole });
+  return users.find((item) => item.user_id === targetUserId) ?? null;
+}

@@ -149,7 +149,7 @@ export default function LoginPage() {
         }
 
         const nomeAtual = profileData?.nome?.trim() ?? "";
-        router.push(nomeAtual ? "/" : "/completar-cadastro");
+        router.push(nomeAtual ? "/inicio" : "/completar-cadastro");
         router.refresh();
         return;
       }

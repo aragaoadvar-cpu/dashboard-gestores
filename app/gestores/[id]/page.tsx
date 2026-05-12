@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import GestorDetalhePageClient from "./GestorDetalhePageClient";
 import { getOwnerGestorDetail } from "@/lib/dashboard/getOwnerGestorDetail";
 import { buildHrefComPeriodo } from "@/lib/periodo";
 import ResponsiveMetricValue from "@/app/components/ResponsiveMetricValue";
+import { requireDashboardModuleAccess } from "@/lib/platform-access/server";
 
 type PageProps = {
   params: Promise<{
@@ -101,40 +101,10 @@ export default async function Page({ params, searchParams }: PageProps) {
   const query = await searchParams;
   const { mes, ano } = parseMesAno(query?.mes, query?.ano);
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  const { data: profileData, error: profileError } = await supabase
-    .from("profiles")
-    .select("role, nome")
-    .eq("id", user.id)
-    .single();
-
-  if (profileError || !profileData) {
-    redirect("/");
-  }
-
-  const roleUsuario =
-    profileData.role === "dono"
-      ? "dono"
-      : profileData.role === "admin"
-      ? "admin"
-      : "gestor";
+  const { roleUsuario, supabase, userId } = await requireDashboardModuleAccess();
 
   if (roleUsuario === "gestor") {
-    redirect("/");
-  }
-
-  const nomeAtual = profileData.nome?.trim() ?? "";
-  if (!nomeAtual) {
-    redirect("/completar-cadastro");
+    redirect("/inicio");
   }
 
   if (roleUsuario === "dono") {
@@ -334,7 +304,7 @@ export default async function Page({ params, searchParams }: PageProps) {
     const { data: vinculoData, error: vinculoError } = await supabase
       .from("admin_gestores")
       .select("id")
-      .eq("admin_user_id", user.id)
+      .eq("admin_user_id", userId)
       .eq("gestor_user_id", gestorId)
       .eq("status", "ativo")
       .maybeSingle();

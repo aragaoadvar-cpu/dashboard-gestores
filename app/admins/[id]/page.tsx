@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { getOwnerAdminDetail } from "@/lib/dashboard/getOwnerAdminDetail";
+import { requireDashboardModuleAccess } from "@/lib/platform-access/server";
 
 type PageProps = {
   params: Promise<{
@@ -101,28 +101,10 @@ export default async function Page({ params, searchParams }: PageProps) {
   const query = await searchParams;
   const { mes, ano } = parseMesAno(query?.mes, query?.ano);
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { roleUsuario } = await requireDashboardModuleAccess();
 
-  if (!user) {
-    redirect("/login");
-  }
-
-  const { data: profileData, error: profileError } = await supabase
-    .from("profiles")
-    .select("role, nome")
-    .eq("id", user.id)
-    .single();
-
-  if (profileError || !profileData || profileData.role !== "dono") {
-    redirect("/");
-  }
-
-  const nomeAtual = profileData.nome?.trim() ?? "";
-  if (!nomeAtual) {
-    redirect("/completar-cadastro");
+  if (roleUsuario !== "dono") {
+    redirect("/inicio");
   }
 
   const serviceSupabase = getServiceSupabaseClient();
