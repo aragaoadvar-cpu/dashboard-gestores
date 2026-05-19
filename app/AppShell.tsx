@@ -2,11 +2,18 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import {
+  hasAnyOwnAliadoScope,
+  resolveModulePermissions,
+  type StoredModuleKey,
+} from "@/lib/platform-access/modules";
+import {
+  isOperationalAdminRole,
+  type RoleUsuario,
+} from "@/lib/platform-access/roles";
 import { buildHrefComPeriodo, getPeriodoQueryFromSearchParams } from "@/lib/periodo";
-
-type RoleUsuario = "dono" | "admin" | "gestor" | "auxiliar" | null;
 
 type Props = {
   roleUsuario: RoleUsuario;
@@ -32,7 +39,7 @@ export default function AppShell({
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const hideSidebar =
     pathname === "/login" ||
     pathname === "/conta-desativada" ||
@@ -44,15 +51,20 @@ export default function AppShell({
   const estaNaTelaInicio = pathname === "/inicio";
   const [saindo, setSaindo] = useState(false);
 
-  const podeVerGestores = roleUsuario === "admin" || roleUsuario === "dono";
+  const podeVerGestores = isOperationalAdminRole(roleUsuario) || roleUsuario === "dono";
   const podeVerConvites =
-    roleUsuario === "admin" || roleUsuario === "gestor" || roleUsuario === "dono";
+    isOperationalAdminRole(roleUsuario) || roleUsuario === "gestor" || roleUsuario === "dono";
+  const [aliadoAccessState, setAliadoAccessState] = useState({
+    canAccessAliado,
+    hasOwnAliadoModule,
+    hasOwnAliadoPessoalModule,
+    hasOwnAliadoEmpresarialModule,
+  });
   const periodoAtual = getPeriodoQueryFromSearchParams(searchParams);
   const ownerAtual = searchParams.get("owner")?.trim() ?? "";
   const escopoAtual = pathname.startsWith("/aliado-financeiro/empresarial")
     ? "empresarial"
     : "pessoal";
-  const podeAbrirDetalhesAliado = hasOwnAliadoModule || Boolean(ownerAtual);
   const aliadoNoHub = pathname === "/aliado-financeiro";
   const aliadoNosConvites = pathname === "/aliado-financeiro/convites";
   const aliadoNoPessoal = pathname.startsWith("/aliado-financeiro/pessoal");
@@ -60,6 +72,11 @@ export default function AppShell({
   const aliadoBaseAtual = aliadoNoEmpresarial
     ? "/aliado-financeiro/empresarial"
     : "/aliado-financeiro/pessoal";
+  const canAccessAliadoAtual = aliadoAccessState.canAccessAliado;
+  const hasOwnAliadoModuleAtual = aliadoAccessState.hasOwnAliadoModule;
+  const hasOwnAliadoPessoalModuleAtual = aliadoAccessState.hasOwnAliadoPessoalModule;
+  const hasOwnAliadoEmpresarialModuleAtual = aliadoAccessState.hasOwnAliadoEmpresarialModule;
+  const podeAbrirDetalhesAliado = hasOwnAliadoModuleAtual || Boolean(ownerAtual);
 
   function getHrefTemporal(destino: string) {
     return buildHrefComPeriodo(destino, periodoAtual);
@@ -95,6 +112,55 @@ export default function AppShell({
     setSaindo(false);
   }, [pathname, roleUsuario]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function sincronizarAliado() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user || cancelled) {
+        return;
+      }
+
+      const [permissionsResp, sharedResp] = await Promise.all([
+        supabase
+          .from("user_module_permissions")
+          .select("module_key, enabled")
+          .eq("user_id", user.id),
+        supabase
+          .from("financeiro_shared_access")
+          .select("id", { count: "exact", head: true })
+          .eq("shared_user_id", user.id)
+          .eq("status", "accepted"),
+      ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      const permissions =
+        (permissionsResp.data as Array<{ module_key: StoredModuleKey; enabled: boolean }> | null) ?? [];
+      const modules = resolveModulePermissions(permissions);
+      const hasOwnAliadoAtualizado = hasAnyOwnAliadoScope(modules);
+      const hasSharedAliadoAccess = (sharedResp.count ?? 0) > 0;
+
+      setAliadoAccessState({
+        canAccessAliado: hasOwnAliadoAtualizado || hasSharedAliadoAccess,
+        hasOwnAliadoModule: hasOwnAliadoAtualizado,
+        hasOwnAliadoPessoalModule: modules.aliado_financeiro_pessoal,
+        hasOwnAliadoEmpresarialModule: modules.aliado_financeiro_empresarial,
+      });
+    }
+
+    void sincronizarAliado();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname, supabase]);
+
   if (hideSidebar) {
     return <>{children}</>;
   }
@@ -120,11 +186,19 @@ export default function AppShell({
     return "rounded-2xl border border-transparent px-4 py-3 text-base font-semibold text-slate-200 transition hover:border-cyan-300/30 hover:bg-cyan-400/8 hover:text-cyan-100";
   }
 
+  function isAliadoAtivo(href: string) {
+    return pathname === href;
+  }
+
   function getAliadoNavClass(href: string) {
-    const ativo = isAtivo(href);
+    const ativo = isAliadoAtivo(href);
     if (ativo) {
       return "rounded-2xl border border-emerald-300/55 bg-emerald-400/10 px-4 py-3 text-base font-bold text-emerald-100 shadow-[0_0_0_1px_rgba(52,211,153,0.35)]";
     }
+    return "rounded-2xl border border-transparent px-4 py-3 text-base font-semibold text-slate-200 transition hover:border-emerald-300/30 hover:bg-emerald-400/8 hover:text-emerald-100";
+  }
+
+  function getAliadoActionClass() {
     return "rounded-2xl border border-transparent px-4 py-3 text-base font-semibold text-slate-200 transition hover:border-emerald-300/30 hover:bg-emerald-400/8 hover:text-emerald-100";
   }
 
@@ -153,20 +227,20 @@ export default function AppShell({
         <header className="sticky top-0 z-20 border-b border-white/10 bg-[#0a0f1d]/95 px-2 py-1.5 shadow-[0_8px_20px_rgba(2,6,23,0.35)] backdrop-blur lg:hidden">
           <div className="flex items-center justify-between gap-1.5">
             <h2 className="bg-gradient-to-r from-cyan-300 to-indigo-400 bg-clip-text text-[11px] font-black tracking-[0.08em] text-transparent">
-              ADSYNC3
+              ALIADO
             </h2>
             <p className="text-[8px] uppercase tracking-[0.1em] text-slate-400">
-              Platform
+              Performance Center
             </p>
           </div>
 
           <nav className="mt-1.5 -mx-0.5 flex gap-1 overflow-x-auto px-0.5 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {canAccessDashboard && (
               <Link href="/" className={`${getPlatformNavClass("/")} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
-                Dashboard
+                Adsync3
               </Link>
             )}
-            {canAccessAliado && (
+            {canAccessAliadoAtual && (
               <Link href={getHrefAliado("/aliado-financeiro")} className={`${getPlatformNavClass("/aliado-financeiro")} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
                 Aliado Financeiro
               </Link>
@@ -199,19 +273,19 @@ export default function AppShell({
 
         <aside className="relative z-10 hidden w-72 border-r border-white/10 bg-[#0a0f1d]/95 p-6 shadow-[0_0_35px_rgba(15,23,42,0.8)] lg:block">
           <h2 className="bg-gradient-to-r from-cyan-300 to-indigo-400 bg-clip-text text-xl font-black tracking-[0.12em] text-transparent">
-            ADSYNC3
+            ALIADO
           </h2>
           <p className="mt-2 text-xs uppercase tracking-[0.12em] text-slate-400">
-            Platform Modules
+            Performance Center
           </p>
 
           <nav className="mt-8 flex flex-col gap-2">
             {canAccessDashboard && (
               <Link href="/" className={getPlatformNavClass("/")}>
-                Dashboard
+                Adsync3
               </Link>
             )}
-            {canAccessAliado && (
+            {canAccessAliadoAtual && (
               <Link href={getHrefAliado("/aliado-financeiro")} className={getPlatformNavClass("/aliado-financeiro")}>
                 Aliado Financeiro
               </Link>
@@ -255,7 +329,7 @@ export default function AppShell({
         <header className="sticky top-0 z-20 border-b border-white/10 bg-[#0a0f1d]/95 px-2 py-1.5 shadow-[0_8px_20px_rgba(2,6,23,0.35)] backdrop-blur lg:hidden">
           <div className="flex items-center justify-between gap-1.5">
             <h2 className="bg-gradient-to-r from-emerald-300 to-teal-400 bg-clip-text text-[11px] font-black tracking-[0.08em] text-transparent">
-              ADSYNC3
+              Aliado
             </h2>
             <p className="text-[8px] uppercase tracking-[0.1em] text-slate-400">
               Aliado Financeiro
@@ -265,17 +339,17 @@ export default function AppShell({
           <nav className="mt-1.5 -mx-0.5 flex gap-1 overflow-x-auto px-0.5 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {aliadoNoHub && (
               <>
-                {hasOwnAliadoPessoalModule && (
+                {hasOwnAliadoPessoalModuleAtual && (
                   <Link href={getHrefAliadoOuHub("/aliado-financeiro/pessoal")} className={`${getAliadoNavClass("/aliado-financeiro/pessoal")} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
                     Pessoal
                   </Link>
                 )}
-                {hasOwnAliadoEmpresarialModule && (
+                {hasOwnAliadoEmpresarialModuleAtual && (
                   <Link href={getHrefAliadoOuHub("/aliado-financeiro/empresarial")} className={`${getAliadoNavClass("/aliado-financeiro/empresarial")} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
                     Empresarial
                   </Link>
                 )}
-                {hasOwnAliadoModule && (
+                {hasOwnAliadoModuleAtual && (
                   <Link href="/aliado-financeiro/convites" className={`${getAliadoNavClass("/aliado-financeiro/convites")} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
                     Compartilhar
                   </Link>
@@ -327,7 +401,7 @@ export default function AppShell({
               </>
             )}
             {pathname === "/aliado-financeiro" ? (
-              <Link href="/inicio" className={`${getAliadoNavClass("/inicio")} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
+              <Link href="/inicio" className={`${getAliadoActionClass()} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
                 Voltar
               </Link>
             ) : aliadoNosConvites ? (
@@ -335,22 +409,22 @@ export default function AppShell({
                 <Link href={hrefHubAliado} className={`${getAliadoNavClass("/aliado-financeiro")} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
                   Início
                 </Link>
-                {hasOwnAliadoPessoalModule && (
+                {hasOwnAliadoPessoalModuleAtual && (
                   <Link href={getHrefAliadoOuHub("/aliado-financeiro/pessoal")} className={`${getAliadoNavClass("/aliado-financeiro/pessoal")} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
                     Pessoal
                   </Link>
                 )}
-                {hasOwnAliadoEmpresarialModule && (
+                {hasOwnAliadoEmpresarialModuleAtual && (
                   <Link href={getHrefAliadoOuHub("/aliado-financeiro/empresarial")} className={`${getAliadoNavClass("/aliado-financeiro/empresarial")} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
                     Empresarial
                   </Link>
                 )}
-                <Link href={hrefHubAliado} className={`${getAliadoNavClass("/aliado-financeiro")} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
+                <Link href={hrefHubAliado} className={`${getAliadoActionClass()} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
                   Voltar
                 </Link>
               </>
             ) : (
-              <Link href={hrefHubAliado} className={`${getAliadoNavClass("/aliado-financeiro")} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
+              <Link href={hrefHubAliado} className={`${getAliadoActionClass()} shrink-0 !rounded-lg !border !px-2 !py-1 !text-[11px] !font-semibold`}>
                 Voltar
               </Link>
             )}
@@ -359,7 +433,7 @@ export default function AppShell({
 
         <aside className="relative z-10 hidden w-72 border-r border-white/10 bg-[#0a0f1d]/95 p-6 shadow-[0_0_35px_rgba(15,23,42,0.8)] lg:block">
           <h2 className="bg-gradient-to-r from-emerald-300 to-teal-400 bg-clip-text text-xl font-black tracking-[0.12em] text-transparent">
-            ADSYNC3
+            Aliado
           </h2>
           <p className="mt-2 text-xs uppercase tracking-[0.12em] text-slate-400">
             Aliado Financeiro
@@ -368,7 +442,7 @@ export default function AppShell({
           <nav className="mt-8 flex flex-col gap-2">
             {aliadoNoHub && (
               <>
-                {hasOwnAliadoPessoalModule && (
+                {hasOwnAliadoPessoalModuleAtual && (
                   <Link
                     href={getHrefAliadoOuHub("/aliado-financeiro/pessoal")}
                     className={getAliadoNavClass("/aliado-financeiro/pessoal")}
@@ -376,7 +450,7 @@ export default function AppShell({
                     Pessoal
                   </Link>
                 )}
-                {hasOwnAliadoEmpresarialModule && (
+                {hasOwnAliadoEmpresarialModuleAtual && (
                   <Link
                     href={getHrefAliadoOuHub("/aliado-financeiro/empresarial")}
                     className={getAliadoNavClass("/aliado-financeiro/empresarial")}
@@ -384,7 +458,7 @@ export default function AppShell({
                     Empresarial
                   </Link>
                 )}
-                {hasOwnAliadoModule && (
+                {hasOwnAliadoModuleAtual && (
                   <Link
                     href="/aliado-financeiro/convites"
                     className={getAliadoNavClass("/aliado-financeiro/convites")}
@@ -475,7 +549,7 @@ export default function AppShell({
               </>
             )}
             {pathname === "/aliado-financeiro" ? (
-              <Link href="/inicio" className={getAliadoNavClass("/inicio")}>
+              <Link href="/inicio" className={getAliadoActionClass()}>
                 Voltar
               </Link>
             ) : aliadoNosConvites ? (
@@ -486,7 +560,7 @@ export default function AppShell({
                 >
                   Início
                 </Link>
-                {hasOwnAliadoPessoalModule && (
+                {hasOwnAliadoPessoalModuleAtual && (
                   <Link
                     href={getHrefAliadoOuHub("/aliado-financeiro/pessoal")}
                     className={getAliadoNavClass("/aliado-financeiro/pessoal")}
@@ -494,7 +568,7 @@ export default function AppShell({
                     Pessoal
                   </Link>
                 )}
-                {hasOwnAliadoEmpresarialModule && (
+                {hasOwnAliadoEmpresarialModuleAtual && (
                   <Link
                     href={getHrefAliadoOuHub("/aliado-financeiro/empresarial")}
                     className={getAliadoNavClass("/aliado-financeiro/empresarial")}
@@ -502,12 +576,12 @@ export default function AppShell({
                     Empresarial
                   </Link>
                 )}
-                <Link href={hrefHubAliado} className={getAliadoNavClass("/aliado-financeiro")}>
+                <Link href={hrefHubAliado} className={getAliadoActionClass()}>
                   Voltar
                 </Link>
               </>
             ) : (
-              <Link href={hrefHubAliado} className={getAliadoNavClass("/aliado-financeiro")}>
+              <Link href={hrefHubAliado} className={getAliadoActionClass()}>
                 Voltar
               </Link>
             )}
@@ -526,7 +600,7 @@ export default function AppShell({
       <header className="sticky top-0 z-20 border-b border-white/10 bg-[#0a0f1d]/95 px-2 py-1.5 shadow-[0_8px_20px_rgba(2,6,23,0.35)] backdrop-blur lg:hidden">
         <div className="flex items-center justify-between gap-1.5">
           <h2 className="bg-gradient-to-r from-blue-300 to-blue-500 bg-clip-text text-[11px] font-black tracking-[0.08em] text-transparent">
-            ADSYNC3
+            Adsync3
           </h2>
           <p className="text-[8px] uppercase tracking-[0.1em] text-slate-400">
             Command Center
@@ -561,7 +635,7 @@ export default function AppShell({
 
       <aside className="relative z-10 hidden w-72 border-r border-white/10 bg-[#0a0f1d]/95 p-6 shadow-[0_0_35px_rgba(15,23,42,0.8)] lg:block">
         <h2 className="bg-gradient-to-r from-blue-300 to-blue-500 bg-clip-text text-xl font-black tracking-[0.12em] text-transparent">
-          ADSYNC3
+          Adsync3
         </h2>
         <p className="mt-2 text-xs uppercase tracking-[0.12em] text-slate-400">
           Command Center

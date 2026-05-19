@@ -17,6 +17,7 @@ export default async function Page({
       hasOwnAliadoModule={access.hasOwnAliadoModule}
       hasOwnAliadoPessoalModule={access.hasOwnAliadoPessoalModule}
       hasOwnAliadoEmpresarialModule={access.hasOwnAliadoEmpresarialModule}
+      initialSharedItems={access.sharedHubItems}
     />
   );
 }

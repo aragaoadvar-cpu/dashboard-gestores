@@ -4,9 +4,12 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "../../lib/supabase/client";
 import { getMesAnoFromSearchParams } from "../../lib/periodo";
+import {
+  isOperationalAdminRole,
+  parseRole,
+  type RoleUsuario,
+} from "@/lib/platform-access/roles";
 import MonthYearPicker from "../components/MonthYearPicker";
-
-type RoleUsuario = "dono" | "admin" | "gestor" | "auxiliar";
 
 type Despesa = {
   id: number;
@@ -112,7 +115,7 @@ export default function DespesasPageClient() {
   }, [mesSelecionado]);
 
   const labelPerfilAtual = useMemo(() => {
-    if (roleUsuario === "admin") {
+    if (isOperationalAdminRole(roleUsuario)) {
       const nome = nomeUsuarioAtual.trim();
       return nome ? `${nome} - Admin` : "Admin";
     }
@@ -141,7 +144,7 @@ export default function DespesasPageClient() {
     (userId: string | null): string | null => {
       if (!userId) return null;
       if (userId === userIdAtual) {
-        if (roleUsuario === "admin") return "Admin";
+        if (isOperationalAdminRole(roleUsuario)) return "Admin";
         if (roleUsuario === "gestor") return "Gestor";
         if (roleUsuario === "dono") return "Dono";
         if (roleUsuario === "auxiliar") return "Auxiliar";
@@ -186,7 +189,7 @@ export default function DespesasPageClient() {
   }, [despesas, filtroDonoDespesaId]);
 
   const opcoesCriarDespesaPara = useMemo(() => {
-    if (roleUsuario !== "admin" || !userIdAtual) return [];
+    if (!isOperationalAdminRole(roleUsuario) || !userIdAtual) return [];
 
     return [userIdAtual, ...gestoresVinculadosIds].map((userId) => ({
       id: userId,
@@ -205,7 +208,7 @@ export default function DespesasPageClient() {
 
     const despesasProprias = despesas.filter((despesa) => despesa.user_id === userOwnerAtual);
     const despesasEquipe =
-      roleUsuario === "admin"
+      isOperationalAdminRole(roleUsuario)
         ? despesas.filter((despesa) => despesa.user_id && gestoresSet.has(despesa.user_id))
         : roleUsuario === "dono"
         ? despesas.filter((despesa) => despesa.user_id !== userIdAtual)
@@ -235,12 +238,12 @@ export default function DespesasPageClient() {
   );
 
   function podeAdminGerenciarDespesa(userIdDespesa: string | null): boolean {
-    if (roleUsuario !== "admin" || !userIdDespesa) return false;
+    if (!isOperationalAdminRole(roleUsuario) || !userIdDespesa) return false;
     return userIdDespesa === userIdAtual || gestoresVinculadosIds.includes(userIdDespesa);
   }
 
   function getMensagemPermissaoDespesa(acao: "editar" | "excluir"): string {
-    if (roleUsuario === "admin") {
+    if (isOperationalAdminRole(roleUsuario)) {
       return `Você só pode ${acao} despesas próprias ou de gestores vinculados.`;
     }
 
@@ -281,20 +284,13 @@ export default function DespesasPageClient() {
       return;
     }
 
-    const roleAtual: RoleUsuario =
-      profileData.role === "dono"
-        ? "dono"
-        : profileData.role === "admin"
-        ? "admin"
-        : profileData.role === "auxiliar"
-        ? "auxiliar"
-        : "gestor";
+    const roleAtual = parseRole(profileData.role) ?? "gestor";
     setRoleUsuario(roleAtual);
     setNomeUsuarioAtual((profileData.nome ?? "").trim());
 
     let gestoresDoAdmin: string[] = [];
     let ownerDoAuxiliar: string | null = null;
-    if (roleAtual === "admin") {
+    if (isOperationalAdminRole(roleAtual)) {
       const { data: gestoresData, error: gestoresError } = await supabase
         .from("admin_gestores")
         .select("gestor_user_id")
@@ -334,7 +330,7 @@ export default function DespesasPageClient() {
     setGestoresVinculadosIds(gestoresDoAdmin);
     setOwnerIdAuxiliar(ownerDoAuxiliar);
 
-    if (roleAtual === "admin") {
+    if (isOperationalAdminRole(roleAtual)) {
       const ownersPermitidos = new Set([user.id, ...gestoresDoAdmin]);
       setUserIdNovaDespesa((atual) => (ownersPermitidos.has(atual) ? atual : user.id));
     } else {
@@ -350,7 +346,7 @@ export default function DespesasPageClient() {
 
     if (roleAtual === "gestor") {
       despesasQuery = despesasQuery.eq("user_id", user.id);
-    } else if (roleAtual === "admin") {
+    } else if (isOperationalAdminRole(roleAtual)) {
       despesasQuery = despesasQuery.in("user_id", [user.id, ...gestoresDoAdmin]);
     } else if (roleAtual === "auxiliar" && ownerDoAuxiliar) {
       despesasQuery = despesasQuery.eq("user_id", ownerDoAuxiliar);
@@ -371,7 +367,7 @@ export default function DespesasPageClient() {
       new Set(
         [
           ...despesasLista.map((item) => item.user_id).filter(Boolean),
-          ...(roleAtual === "admin" ? [user.id, ...gestoresDoAdmin] : []),
+          ...(isOperationalAdminRole(roleAtual) ? [user.id, ...gestoresDoAdmin] : []),
         ].filter(Boolean)
       )
     ) as string[];
@@ -481,7 +477,7 @@ export default function DespesasPageClient() {
     const ownerIdParaDespesa =
       roleUsuario === "auxiliar"
         ? ownerIdAuxiliar
-        : roleUsuario === "admin"
+        : isOperationalAdminRole(roleUsuario)
         ? userIdNovaDespesa
         : user.id;
     if (!ownerIdParaDespesa) {
@@ -686,7 +682,7 @@ export default function DespesasPageClient() {
             </p>
 
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[1.4fr_1fr_0.8fr_auto]">
-              {roleUsuario === "admin" && (
+              {isOperationalAdminRole(roleUsuario) && (
                 <div className="md:col-span-4">
                   <label className="mb-2 block text-sm font-medium text-slate-300">
                     Criar despesa para
@@ -750,7 +746,7 @@ export default function DespesasPageClient() {
             </div>
           </div>
 
-          {(roleUsuario === "admin" || roleUsuario === "dono") && (
+          {(isOperationalAdminRole(roleUsuario) || roleUsuario === "dono") && (
             <div className="mt-6">
               <label className="mb-2 block text-sm font-medium text-slate-300">
                 Filtrar por gestor/dono da despesa
@@ -794,7 +790,7 @@ export default function DespesasPageClient() {
               </>
             )}
 
-            {roleUsuario === "admin" && (
+            {isOperationalAdminRole(roleUsuario) && (
               <>
                 <div className="rounded-2xl border border-slate-200 card-white-modern p-4 shadow-sm">
                   <p className="text-sm font-semibold text-slate-600">Próprio</p>

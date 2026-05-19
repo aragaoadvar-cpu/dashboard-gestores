@@ -1,8 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { syncEffectiveProfileActiveState } from "@/lib/platform-access/profile-activity";
+import {
+  isOperationalAdminRole,
+  parseRole,
+  type RoleUsuario,
+} from "@/lib/platform-access/roles";
 
-type RoleUsuario = "dono" | "admin" | "gestor";
-type AcaoGestor = "remover_gestor" | "tornar_administrador";
+type AcaoGestor = "remover_gestor" | "reativar_gestor" | "tornar_administrador";
 
 function getServiceSupabaseClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -16,6 +21,37 @@ function getServiceSupabaseClient() {
       persistSession: false,
     },
   });
+}
+
+async function setDashboardAccessForUser(
+  gestorId: string,
+  grantedByUserId: string,
+  enabled: boolean
+) {
+  const serviceSupabase = getServiceSupabaseClient();
+  if (!serviceSupabase) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY não configurada no servidor.");
+  }
+
+  const { error } = await serviceSupabase.from("user_module_permissions").upsert(
+    {
+      user_id: gestorId,
+      module_key: "dashboard_ads",
+      enabled,
+      granted_by: grantedByUserId,
+    },
+    {
+      onConflict: "user_id,module_key",
+    }
+  );
+
+  if (error) {
+    throw new Error(
+      `${enabled ? "Erro ao liberar" : "Erro ao revogar"} acesso da Dashboard: ${error.message}`
+    );
+  }
+
+  await syncEffectiveProfileActiveState(serviceSupabase, gestorId);
 }
 
 export async function PATCH(
@@ -46,14 +82,9 @@ export async function PATCH(
     );
   }
 
-  const roleUsuario: RoleUsuario =
-    actorProfile.role === "dono"
-      ? "dono"
-      : actorProfile.role === "admin"
-      ? "admin"
-      : "gestor";
+  const roleUsuario = parseRole(actorProfile.role);
 
-  if (roleUsuario === "gestor") {
+  if (!roleUsuario || roleUsuario === "gestor" || roleUsuario === "auxiliar") {
     return Response.json({ success: false, error: "Acesso não permitido." }, { status: 403 });
   }
 
@@ -70,13 +101,12 @@ export async function PATCH(
     );
   }
 
-  if (roleUsuario === "admin") {
+  if (isOperationalAdminRole(roleUsuario)) {
     const { data: vinculo, error: vinculoError } = await supabase
       .from("admin_gestores")
       .select("id")
       .eq("admin_user_id", user.id)
       .eq("gestor_user_id", gestorId)
-      .eq("status", "ativo")
       .maybeSingle();
 
     if (vinculoError || !vinculo) {
@@ -95,48 +125,112 @@ export async function PATCH(
   }
 
   const action = body.action;
-  if (action !== "remover_gestor" && action !== "tornar_administrador") {
+  if (
+    action !== "remover_gestor" &&
+    action !== "reativar_gestor" &&
+    action !== "tornar_administrador"
+  ) {
     return Response.json(
-      { success: false, error: "Ação inválida. Use 'remover_gestor' ou 'tornar_administrador'." },
+      {
+        success: false,
+        error:
+          "Ação inválida. Use 'remover_gestor', 'reativar_gestor' ou 'tornar_administrador'.",
+      },
       { status: 400 }
     );
   }
 
-  let vinculoQuery = supabase
-    .from("admin_gestores")
-    .update({ status: "inativo" })
-    .eq("gestor_user_id", gestorId)
-    .eq("status", "ativo");
-
-  if (roleUsuario === "admin") {
-    vinculoQuery = vinculoQuery.eq("admin_user_id", user.id);
-  }
-
-  const { error: vinculoUpdateError } = await vinculoQuery;
-
-  if (vinculoUpdateError) {
+  const statusOrigem = action === "reativar_gestor" ? "inativo" : "ativo";
+  const statusDestino = action === "reativar_gestor" ? "ativo" : "inativo";
+  const serviceSupabase = getServiceSupabaseClient();
+  if (!serviceSupabase) {
     return Response.json(
-      { success: false, error: `Erro ao atualizar vínculo do gestor: ${vinculoUpdateError.message}` },
+      {
+        success: false,
+        error: "SUPABASE_SERVICE_ROLE_KEY não configurada no servidor.",
+      },
       { status: 500 }
     );
   }
 
+  let vinculoUpdateQuery = serviceSupabase
+    .from("admin_gestores")
+    .update({ status: statusDestino })
+    .eq("gestor_user_id", gestorId)
+    .eq("status", statusOrigem);
+
+  if (isOperationalAdminRole(roleUsuario)) {
+    vinculoUpdateQuery = vinculoUpdateQuery.eq("admin_user_id", user.id);
+  }
+
+  const { data: vinculoAtualizado, error: vinculoUpdateError } = await vinculoUpdateQuery
+    .select("id")
+    .maybeSingle();
+
+  if (vinculoUpdateError) {
+    return Response.json(
+      {
+        success: false,
+        error: `Erro ao atualizar vínculo do gestor: ${vinculoUpdateError.message}`,
+      },
+      { status: 500 }
+    );
+  }
+
+  if (!vinculoAtualizado) {
+    return Response.json(
+      {
+        success: false,
+        error:
+          action === "reativar_gestor"
+            ? "Nenhum vínculo inativo foi encontrado para reativar este gestor."
+            : "Nenhum vínculo ativo foi encontrado para inativar este gestor.",
+      },
+      { status: 409 }
+    );
+  }
+
   if (action === "remover_gestor") {
+    try {
+      await setDashboardAccessForUser(gestorId, user.id, false);
+    } catch (error) {
+      return Response.json(
+        {
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Erro ao revogar acesso de Dashboard do gestor.",
+        },
+        { status: 500 }
+      );
+    }
+
     return Response.json(
       { success: true, action, message: "Gestor removido da equipe com sucesso." },
       { status: 200 }
     );
   }
 
-  const serviceSupabase = getServiceSupabaseClient();
-  if (!serviceSupabase) {
+  if (action === "reativar_gestor") {
+    try {
+      await setDashboardAccessForUser(gestorId, user.id, true);
+    } catch (error) {
+      return Response.json(
+        {
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Erro ao liberar acesso de Dashboard do gestor.",
+        },
+        { status: 500 }
+      );
+    }
+
     return Response.json(
-      {
-        success: false,
-        error:
-          "Promoção indisponível: configure SUPABASE_SERVICE_ROLE_KEY no servidor para concluir esta ação.",
-      },
-      { status: 500 }
+      { success: true, action, message: "Gestor reativado com sucesso." },
+      { status: 200 }
     );
   }
 

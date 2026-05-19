@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getPlatformAccessContext } from "@/lib/platform-access/server";
+import { getPlatformServiceSupabaseClient } from "@/lib/platform-access/service";
 import type { FinanceiroEscopo } from "./types";
 
 type FinanceiroShareSearchParams =
@@ -20,6 +21,78 @@ export type FinanceiroResolvedAccess = {
   scope: FinanceiroEscopo;
   allowedScopes: FinanceiroEscopo[];
 };
+
+export type FinanceiroSharedHubItem = {
+  owner_user_id: string;
+  owner_nome: string;
+  permission_level: "view" | "edit";
+  escopos: FinanceiroEscopo[];
+};
+
+async function resolveOwnerDisplayNames(params: {
+  supabase: Awaited<ReturnType<typeof getPlatformAccessContext>>["supabase"];
+  ownerIds: string[];
+}) {
+  const { supabase, ownerIds } = params;
+  const ownerNames = new Map<string, string>();
+  const serviceSupabase = getPlatformServiceSupabaseClient();
+
+  if (ownerIds.length === 0) {
+    return ownerNames;
+  }
+
+  if (serviceSupabase) {
+    const { data: profilesData, error: profilesError } = await serviceSupabase
+      .from("profiles")
+      .select("id, nome")
+      .in("id", ownerIds);
+
+    if (!profilesError) {
+      for (const item of profilesData ?? []) {
+        const nome = item.nome?.trim();
+        if (nome) {
+          ownerNames.set(item.id, nome);
+        }
+      }
+    }
+
+    const unresolvedOwnerIds = ownerIds.filter((ownerId) => !ownerNames.has(ownerId));
+    if (unresolvedOwnerIds.length > 0) {
+      const authUsers = await Promise.all(
+        unresolvedOwnerIds.map(async (ownerId) => {
+          const { data, error } = await serviceSupabase.auth.admin.getUserById(ownerId);
+          if (error) {
+            return [ownerId, ""] as const;
+          }
+
+          return [ownerId, data.user?.email?.trim().toLowerCase() ?? ""] as const;
+        })
+      );
+
+      for (const [ownerId, email] of authUsers) {
+        if (email) {
+          ownerNames.set(ownerId, email);
+        }
+      }
+    }
+
+    return ownerNames;
+  }
+
+  const { data: profilesData } = await supabase
+    .from("profiles")
+    .select("id, nome")
+    .in("id", ownerIds);
+
+  for (const item of profilesData ?? []) {
+    const nome = item.nome?.trim();
+    if (nome) {
+      ownerNames.set(item.id, nome);
+    }
+  }
+
+  return ownerNames;
+}
 
 function getSearchValue(
   searchParams: FinanceiroShareSearchParams,
@@ -49,7 +122,39 @@ export async function requireAliadoFinanceiroHubAccess() {
     redirect("/inicio");
   }
 
-  return context;
+  const { data: sharedData, error: sharedError } = await context.supabase
+    .from("financeiro_shared_access")
+    .select("owner_user_id, permission_level, escopos")
+    .eq("shared_user_id", context.userId)
+    .eq("status", "accepted")
+    .order("created_at", { ascending: false });
+
+  if (sharedError) {
+    throw new Error(`Erro ao carregar compartilhamentos do Aliado: ${sharedError.message}`);
+  }
+
+  const ownerIds = Array.from(
+    new Set((sharedData ?? []).map((item) => item.owner_user_id).filter(Boolean))
+  );
+
+  const ownerNames = await resolveOwnerDisplayNames({
+    supabase: context.supabase,
+    ownerIds,
+  });
+
+  const sharedHubItems: FinanceiroSharedHubItem[] = (sharedData ?? []).map((item) => ({
+    owner_user_id: item.owner_user_id,
+    owner_nome: ownerNames.get(item.owner_user_id) ?? "Usuário sem nome",
+    permission_level: item.permission_level === "edit" ? "edit" : "view",
+    escopos: ((item.escopos ?? []) as string[]).filter(
+      (scope): scope is FinanceiroEscopo => scope === "pessoal" || scope === "empresarial"
+    ),
+  }));
+
+  return {
+    ...context,
+    sharedHubItems,
+  };
 }
 
 export async function requireAliadoFinanceiroUser(
@@ -98,16 +203,15 @@ export async function requireAliadoFinanceiroUser(
     redirect("/aliado-financeiro");
   }
 
-  const { data: ownerProfile } = await context.supabase
-    .from("profiles")
-    .select("nome")
-    .eq("id", ownerUserIdParam)
-    .maybeSingle();
+  const ownerNames = await resolveOwnerDisplayNames({
+    supabase: context.supabase,
+    ownerIds: [ownerUserIdParam],
+  });
 
   return {
     authUserId: context.userId,
     ownerUserId: ownerUserIdParam,
-    ownerNome: ownerProfile?.nome?.trim() || "outro usuário",
+    ownerNome: ownerNames.get(ownerUserIdParam) ?? "Usuário sem nome",
     nomeAtual: context.nomeAtual,
     canEdit: shareData.permission_level === "edit",
     isSharedView: true,

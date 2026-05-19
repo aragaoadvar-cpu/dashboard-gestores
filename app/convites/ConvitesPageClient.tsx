@@ -2,10 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getNomeMes } from "../../lib/periodo";
-
-type RoleUsuario = "dono" | "admin" | "gestor";
-type InviteType = "admin" | "gestor" | "auxiliar";
-type InviteStatus = "pending" | "accepted" | "expired" | "revoked" | "active_linked";
+import {
+  isOperationalAdminRole,
+  parseRole,
+  type RoleUsuario,
+} from "@/lib/platform-access/roles";
+type InviteType = "admin" | "gestor_admin" | "gestor" | "auxiliar";
+type InviteStatus =
+  | "pending"
+  | "accepted"
+  | "expired"
+  | "revoked"
+  | "active_linked"
+  | "inactive_linked";
 
 type Convite = {
   id: string;
@@ -75,7 +84,13 @@ function formatarData(dataIso: string | null) {
 }
 
 function formatarExpiracao(dataIso: string | null, status: InviteStatus) {
-  if (status === "accepted" || status === "active_linked") return "Sem expiração";
+  if (
+    status === "accepted" ||
+    status === "active_linked" ||
+    status === "inactive_linked"
+  ) {
+    return "Sem expiração";
+  }
   if (!dataIso) return "Sem expiração";
   const data = new Date(dataIso);
   if (Number.isNaN(data.getTime())) return "Sem expiração";
@@ -87,7 +102,8 @@ function getStatusStyle(status: InviteStatus) {
   if (status === "accepted") return "bg-green-100 text-green-700 border-green-200";
   if (status === "pending") return "bg-yellow-100 text-yellow-700 border-yellow-200";
   if (status === "revoked") return "bg-red-100 text-red-700 border-red-200";
-  if (status === "active_linked") return "bg-blue-100 text-blue-700 border-blue-200";
+  if (status === "active_linked") return "bg-green-100 text-green-700 border-green-200";
+  if (status === "inactive_linked") return "bg-slate-100 text-slate-700 border-slate-200";
   return "bg-gray-100 text-gray-700 border-gray-200";
 }
 
@@ -95,7 +111,8 @@ function getStatusLabel(status: InviteStatus) {
   if (status === "accepted") return "Aceito";
   if (status === "pending") return "Pendente";
   if (status === "revoked") return "Revogado";
-  if (status === "active_linked") return "Vínculo ativo";
+  if (status === "active_linked") return "Ativo";
+  if (status === "inactive_linked") return "Inativo";
   return "Expirado";
 }
 
@@ -115,13 +132,17 @@ export default function ConvitesPageClient() {
 
   const [emailConvite, setEmailConvite] = useState("");
   const [criandoConvite, setCriandoConvite] = useState(false);
-  const [tipoConviteAdmin, setTipoConviteAdmin] = useState<"gestor" | "auxiliar">("gestor");
+  const [tipoConviteDono, setTipoConviteDono] = useState<"admin">("admin");
+  const [tipoConviteAdmin, setTipoConviteAdmin] = useState<
+    "gestor_admin" | "gestor" | "auxiliar"
+  >("gestor_admin");
   const [linkFallbackAtual, setLinkFallbackAtual] = useState("");
   const [statusEnvioEmail, setStatusEnvioEmail] = useState("");
   const [revogandoConviteId, setRevogandoConviteId] = useState<string | null>(null);
   const [copiandoConviteId, setCopiandoConviteId] = useState<string | null>(null);
   const [reenviandoConviteId, setReenviandoConviteId] = useState<string | null>(null);
   const [inativandoUsuarioId, setInativandoUsuarioId] = useState<string | null>(null);
+  const [ativandoUsuarioId, setAtivandoUsuarioId] = useState<string | null>(null);
   const [auxiliarGerenciandoId, setAuxiliarGerenciandoId] = useState<string | null>(null);
   const [auxiliarGerenciandoLabel, setAuxiliarGerenciandoLabel] = useState("");
   const [permissoesOperacoesAuxiliar, setPermissoesOperacoesAuxiliar] = useState<
@@ -143,8 +164,8 @@ export default function ConvitesPageClient() {
 
   const tipoConviteDaTela: InviteType =
     roleUsuario === "dono"
-      ? "admin"
-      : roleUsuario === "admin"
+      ? tipoConviteDono
+      : isOperationalAdminRole(roleUsuario)
       ? tipoConviteAdmin
       : "auxiliar";
 
@@ -152,6 +173,8 @@ export default function ConvitesPageClient() {
     () =>
       tipoConviteDaTela === "admin"
         ? "Convidar admin"
+        : tipoConviteDaTela === "gestor_admin"
+        ? "Convidar gestor admin"
         : tipoConviteDaTela === "gestor"
         ? "Convidar gestor"
         : "Convidar auxiliar",
@@ -234,8 +257,7 @@ export default function ConvitesPageClient() {
         return;
       }
 
-      const role =
-        data.role === "dono" ? "dono" : data.role === "admin" ? "admin" : "gestor";
+      const role = parseRole(data.role) ?? "gestor";
       setRoleUsuario(role);
       setConvites((data.invites as Convite[]) || []);
       setGestoresAtivos((data.gestores_ativos as GestorAtivo[]) || []);
@@ -287,7 +309,7 @@ export default function ConvitesPageClient() {
       }
 
       setEmailConvite("");
-      setMensagem("Convite criado com sucesso.");
+      setMensagem(data?.message ?? "Convite criado com sucesso.");
 
       const inviteLink = data.invite_link ?? "";
       if (inviteLink) {
@@ -300,6 +322,10 @@ export default function ConvitesPageClient() {
 
       if (delivery?.status === "sent") {
         setStatusEnvioEmail("Convite criado e email enviado com sucesso.");
+      } else if (delivery?.status === "not_needed") {
+        setStatusEnvioEmail(
+          data?.message ?? "Usuário já existente vinculado à Dashboard com sucesso."
+        );
       } else if (delivery?.status === "not_configured") {
         setStatusEnvioEmail(
           "Convite criado com sucesso. Envio de email não configurado; use o link manual abaixo."
@@ -435,12 +461,18 @@ export default function ConvitesPageClient() {
 
     try {
       const endpoint =
-        tipo === "gestor"
+        tipo === "gestor_admin"
+          ? `/api/gestor-admins/${encodeURIComponent(userId)}`
+          : tipo === "gestor"
           ? `/api/gestores/${encodeURIComponent(userId)}`
           : `/api/auxiliares/${encodeURIComponent(userId)}`;
 
       const payload =
-        tipo === "gestor" ? { action: "remover_gestor" } : { action: "remover_auxiliar" };
+        tipo === "gestor_admin"
+          ? { action: "remover_gestor_admin" }
+          : tipo === "gestor"
+          ? { action: "remover_gestor" }
+          : { action: "remover_auxiliar" };
 
       const response = await fetch(endpoint, {
         method: "PATCH",
@@ -463,6 +495,53 @@ export default function ConvitesPageClient() {
       setErro(`Erro ao inativar usuário: ${(error as Error).message}`);
     } finally {
       setInativandoUsuarioId(null);
+    }
+  }
+
+  async function ativarUsuario(userId: string, tipo: InviteType, label: string) {
+    const confirmar = window.confirm(`Deseja reativar ${label} na Dashboard?`);
+    if (!confirmar) return;
+
+    setErro("");
+    setMensagem("");
+    setAtivandoUsuarioId(userId);
+
+    try {
+      const endpoint =
+        tipo === "gestor_admin"
+          ? `/api/gestor-admins/${encodeURIComponent(userId)}`
+          : tipo === "gestor"
+          ? `/api/gestores/${encodeURIComponent(userId)}`
+          : `/api/auxiliares/${encodeURIComponent(userId)}`;
+
+      const payload =
+        tipo === "gestor_admin"
+          ? { action: "reativar_gestor_admin" }
+          : tipo === "gestor"
+          ? { action: "reativar_gestor" }
+          : { action: "reativar_auxiliar" };
+
+      const response = await fetch(endpoint, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data?.success) {
+        setErro(data?.error ?? "Não foi possível reativar o usuário.");
+        setAtivandoUsuarioId(null);
+        return;
+      }
+
+      setMensagem("Usuário reativado com sucesso.");
+      await carregarConvites();
+    } catch (error) {
+      setErro(`Erro ao reativar usuário: ${(error as Error).message}`);
+    } finally {
+      setAtivandoUsuarioId(null);
     }
   }
 
@@ -754,20 +833,36 @@ export default function ConvitesPageClient() {
           <p className="mt-1 text-sm text-slate-400">
             {tipoConviteDaTela === "admin"
               ? "Como dono, você cria convites para novos admins."
+              : tipoConviteDaTela === "gestor_admin"
+              ? "Como admin, você cria convites para novos gestores admin operacionais."
               : tipoConviteDaTela === "gestor"
               ? "Como admin, você cria convites para novos gestores."
-              : roleUsuario === "admin"
+              : isOperationalAdminRole(roleUsuario)
               ? "Como admin, você cria convites para auxiliares da sua operação."
               : "Como gestor, você cria convites para auxiliares da sua operação."}
           </p>
 
           <div className="mt-4 flex flex-col gap-3 md:flex-row">
-            {roleUsuario === "admin" && (
+            {roleUsuario === "dono" && (
+              <select
+                value={tipoConviteDono}
+                onChange={(e) => setTipoConviteDono(e.target.value as "admin")}
+                className="w-full rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-3 text-slate-100 md:max-w-[220px]"
+              >
+                <option value="admin">Admin</option>
+              </select>
+            )}
+            {isOperationalAdminRole(roleUsuario) && (
               <select
                 value={tipoConviteAdmin}
-                onChange={(e) => setTipoConviteAdmin(e.target.value as "gestor" | "auxiliar")}
+                onChange={(e) =>
+                  setTipoConviteAdmin(
+                    e.target.value as "gestor_admin" | "gestor" | "auxiliar"
+                  )
+                }
                 className="w-full rounded-2xl border border-white/20 bg-[#0b1222] px-4 py-3 text-slate-100 md:max-w-[180px]"
               >
+                {roleUsuario === "admin" && <option value="gestor_admin">Gestor Admin</option>}
                 <option value="gestor">Gestor</option>
                 <option value="auxiliar">Auxiliar</option>
               </select>
@@ -816,10 +911,12 @@ export default function ConvitesPageClient() {
           <h2 className="text-lg font-extrabold text-slate-100 md:text-2xl">Lista de convites</h2>
           <p className="mt-1 text-sm text-slate-400">
             {roleUsuario === "admin"
+              ? "Exibindo convites de gestor admin, gestor e auxiliar criados por você."
+              : roleUsuario === "gestor_admin"
               ? "Exibindo convites de gestor e auxiliar criados por você."
               : roleUsuario === "gestor"
               ? "Exibindo convites de auxiliar criados por você."
-              : "Exibindo convites de admin."}
+              : "Exibindo convites de admin e gestor admin."}
           </p>
 
           {!!mensagem && (
@@ -857,23 +954,52 @@ export default function ConvitesPageClient() {
                     const userVinculadoId =
                       convite.auxiliar_user_id ??
                       (convite.invite_type === "auxiliar" ? convite.accepted_by_user_id ?? null : null) ??
+                      (convite.invite_type === "gestor_admin"
+                        ? convite.accepted_by_user_id ?? null
+                        : null) ??
                       convite.gestor_user_id ??
                       (convite.invite_type === "gestor" ? convite.accepted_by_user_id ?? null : null);
 
-                    const podeInativarGestor =
+                    const podeInativarGestorAdmin =
                       roleUsuario === "admin" &&
+                      convite.invite_type === "gestor_admin" &&
+                      !!userVinculadoId &&
+                      convite.status === "active_linked";
+
+                    const podeInativarGestor =
+                      isOperationalAdminRole(roleUsuario) &&
                       convite.invite_type === "gestor" &&
                       !!userVinculadoId &&
-                      (convite.status === "accepted" || convite.status === "active_linked");
+                      convite.status === "active_linked";
 
                     const podeInativarAuxiliar =
-                      (roleUsuario === "admin" || roleUsuario === "gestor") &&
+                      (isOperationalAdminRole(roleUsuario) || roleUsuario === "gestor") &&
                       convite.invite_type === "auxiliar" &&
                       !!userVinculadoId &&
                       convite.status === "active_linked";
 
+                    const podeAtivarGestor =
+                      isOperationalAdminRole(roleUsuario) &&
+                      convite.invite_type === "gestor" &&
+                      !!userVinculadoId &&
+                      convite.status === "inactive_linked";
+
+                    const podeAtivarGestorAdmin =
+                      roleUsuario === "admin" &&
+                      convite.invite_type === "gestor_admin" &&
+                      !!userVinculadoId &&
+                      convite.status === "inactive_linked";
+
+                    const podeAtivarAuxiliar =
+                      (isOperationalAdminRole(roleUsuario) || roleUsuario === "gestor") &&
+                      convite.invite_type === "auxiliar" &&
+                      !!userVinculadoId &&
+                      convite.status === "inactive_linked";
+
                     const podeInativar =
-                      podeInativarGestor || podeInativarAuxiliar;
+                      podeInativarGestorAdmin || podeInativarGestor || podeInativarAuxiliar;
+                    const podeAtivar =
+                      podeAtivarGestorAdmin || podeAtivarGestor || podeAtivarAuxiliar;
 
                     return (
                       <>
@@ -939,7 +1065,7 @@ export default function ConvitesPageClient() {
                       </button>
                     </div>
                   )}
-                  {podeInativar && (
+                  {(podeInativar || podeAtivar) && (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {podeInativarAuxiliar && userVinculadoId && (
                         <>
@@ -969,16 +1095,40 @@ export default function ConvitesPageClient() {
                           </button>
                         </>
                       )}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          inativarUsuario(userVinculadoId as string, convite.invite_type, convite.invited_email)
-                        }
-                        disabled={inativandoUsuarioId === userVinculadoId}
-                        className="rounded-xl border border-red-300 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:opacity-60"
-                      >
-                        {inativandoUsuarioId === userVinculadoId ? "Inativando..." : "Inativar usuário"}
-                      </button>
+                      {podeInativar && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            inativarUsuario(
+                              userVinculadoId as string,
+                              convite.invite_type,
+                              convite.invited_email
+                            )
+                          }
+                          disabled={inativandoUsuarioId === userVinculadoId}
+                          className="rounded-xl border border-red-300 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:opacity-60"
+                        >
+                          {inativandoUsuarioId === userVinculadoId
+                            ? "Inativando..."
+                            : "Inativar"}
+                        </button>
+                      )}
+                      {podeAtivar && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            ativarUsuario(
+                              userVinculadoId as string,
+                              convite.invite_type,
+                              convite.invited_email
+                            )
+                          }
+                          disabled={ativandoUsuarioId === userVinculadoId}
+                          className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-60"
+                        >
+                          {ativandoUsuarioId === userVinculadoId ? "Ativando..." : "Ativar"}
+                        </button>
+                      )}
                     </div>
                   )}
                       </>

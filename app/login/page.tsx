@@ -3,14 +3,18 @@
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "../../lib/supabase/client";
+import {
+  clearPendingPlatformInvite,
+  getPendingPlatformInvite,
+} from "@/lib/platform-access/platform-invite-storage";
 
 type AcceptResult = {
   success?: boolean;
   code?: string;
   message?: string;
-  invite_type?: "admin" | "gestor" | "auxiliar";
+  invite_type?: "admin" | "gestor_admin" | "gestor" | "auxiliar";
 };
 
 export default function LoginPage() {
@@ -24,43 +28,240 @@ export default function LoginPage() {
   const [mensagem, setMensagem] = useState("");
   const [erro, setErro] = useState("");
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const emailParam = params.get("email")?.trim() ?? "";
+    if (emailParam) {
+      setEmail(emailParam);
+      return;
+    }
+
+    const pendingInvite = getPendingPlatformInvite();
+    if (pendingInvite?.email) {
+      setEmail((currentEmail) => currentEmail || pendingInvite.email);
+    }
+  }, []);
+
+  async function limparMetadataDeConvites(
+    user: {
+      user_metadata?: Record<string, unknown>;
+    },
+    keys: Array<
+      "platform_invite_token" |
+      "platform_invite_nome" |
+      "financeiro_invite_token" |
+      "financeiro_invite_nome"
+    >
+  ) {
+    const currentMetadata = user.user_metadata ?? {};
+    const nextMetadata = { ...currentMetadata };
+
+    for (const key of keys) {
+      nextMetadata[key] = null;
+    }
+
+    await supabase.auth.updateUser({
+      data: nextMetadata,
+    });
+  }
+
+  async function limparMetadataPlataforma(user: {
+    user_metadata?: Record<string, unknown>;
+  }) {
+    await limparMetadataDeConvites(user, [
+      "platform_invite_token",
+      "platform_invite_nome",
+    ]);
+  }
+
+  async function limparMetadataFinanceira(user: {
+    user_metadata?: Record<string, unknown>;
+  }) {
+    await limparMetadataDeConvites(user, [
+      "financeiro_invite_token",
+      "financeiro_invite_nome",
+    ]);
+  }
+
+  async function salvarNomeSeInformado(nome: string) {
+    const nomeLimpo = nome.trim();
+    if (!nomeLimpo) {
+      return { success: true as const };
+    }
+
+    const { error } = await supabase.rpc("update_my_profile_name", {
+      p_nome: nomeLimpo,
+    });
+
+    if (error) {
+      return {
+        success: false as const,
+        error: `Erro ao salvar nome do perfil: ${error.message}`,
+      };
+    }
+
+    return { success: true as const };
+  }
+
+  async function finalizarConvitePlataformaAposLogin(user: {
+    email?: string | null;
+    user_metadata?: Record<string, unknown>;
+  }) {
+    const metadataToken =
+      typeof user.user_metadata?.platform_invite_token === "string"
+        ? user.user_metadata.platform_invite_token.trim()
+        : "";
+    const metadataNome =
+      typeof user.user_metadata?.platform_invite_nome === "string"
+        ? user.user_metadata.platform_invite_nome.trim()
+        : "";
+
+    const storedInvite = getPendingPlatformInvite();
+    const pendingInvite = metadataToken
+      ? {
+          token: metadataToken,
+          email: user.email?.trim().toLowerCase() ?? storedInvite?.email ?? "",
+          nome: metadataNome || storedInvite?.nome || "",
+        }
+      : storedInvite;
+
+    if (!pendingInvite) {
+      return { success: true as const };
+    }
+
+    const emailNormalizado = user.email?.trim().toLowerCase() ?? "";
+    if (pendingInvite.email !== emailNormalizado) {
+      clearPendingPlatformInvite();
+      return {
+        success: false as const,
+        error:
+          "Este login não corresponde ao convite da plataforma pendente. Entre com o e-mail convidado.",
+      };
+    }
+
+    const acceptResponse = await fetch("/api/platform/invitations/accept", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        token: pendingInvite.token,
+        nome: pendingInvite.nome,
+      }),
+    });
+
+    const acceptPayload = (await acceptResponse.json().catch(() => null)) as
+      | { success?: boolean; error?: string; code?: string }
+      | null;
+
+    if (!acceptResponse.ok || !acceptPayload?.success) {
+      if (acceptPayload?.code === "invite_not_pending") {
+        clearPendingPlatformInvite();
+        await limparMetadataPlataforma(user);
+        return { success: true as const };
+      }
+
+      return {
+        success: false as const,
+        error:
+          acceptPayload?.error ??
+          "Não foi possível concluir o convite da plataforma após o login.",
+      };
+    }
+
+    clearPendingPlatformInvite();
+    await limparMetadataPlataforma(user);
+    return { success: true as const };
+  }
+
+  async function finalizarConviteFinanceiroAposLogin(user: {
+    email?: string | null;
+    user_metadata?: Record<string, unknown>;
+  }) {
+    const financeToken =
+      typeof user.user_metadata?.financeiro_invite_token === "string"
+        ? user.user_metadata.financeiro_invite_token.trim()
+        : "";
+    const financeNome =
+      typeof user.user_metadata?.financeiro_invite_nome === "string"
+        ? user.user_metadata.financeiro_invite_nome.trim()
+        : "";
+
+    if (!financeToken) {
+      return { success: true as const };
+    }
+
+    const acceptResponse = await fetch("/api/aliado-financeiro/convites/accept", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        token: financeToken,
+      }),
+    });
+
+    const acceptPayload = (await acceptResponse.json().catch(() => null)) as
+      | { success?: boolean; error?: string; code?: string }
+      | null;
+
+    if (!acceptResponse.ok || !acceptPayload?.success) {
+      if (acceptPayload?.code === "invite_not_pending") {
+        await limparMetadataFinanceira(user);
+        return { success: true as const };
+      }
+
+      return {
+        success: false as const,
+        error:
+          acceptPayload?.error ??
+          "Não foi possível concluir o compartilhamento financeiro após o login.",
+      };
+    }
+
+    const nomeResult = await salvarNomeSeInformado(financeNome);
+    if (!nomeResult.success) {
+      return nomeResult;
+    }
+
+    await limparMetadataFinanceira(user);
+    return { success: true as const };
+  }
+
   async function aceitarConvitePendenteAposLogin(userId: string, userEmail: string) {
     const emailNormalizado = userEmail.trim().toLowerCase();
     if (!emailNormalizado) return { success: true as const };
 
-    const { data: invite, error: inviteError } = await supabase
-      .from("user_invitations")
-      .select("token_hash, invite_type")
-      .eq("normalized_email", emailNormalizado)
-      .eq("status", "pending")
-      .is("revoked_at", null)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (inviteError) {
-      return {
-        success: false as const,
-        error: `Erro ao localizar convite pendente: ${inviteError.message}`,
-      };
-    }
-
-    if (!invite?.token_hash) {
-      return { success: true as const };
-    }
-
-    const { data: rpcData, error: rpcError } = await supabase.rpc("accept_invitation_by_token_hash", {
-      p_token_hash: invite.token_hash,
+    const response = await fetch("/api/invitations/accept-by-token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({}),
     });
 
-    if (rpcError) {
+    const payload = (await response.json().catch(() => null)) as
+      | {
+          success?: boolean;
+          code?: string;
+          error?: string;
+          message?: string;
+          invite_type?: AcceptResult["invite_type"];
+        }
+      | null;
+
+    if (!response.ok) {
+      if (payload?.code === "no_pending_invite") {
+        return { success: true as const };
+      }
+
       return {
         success: false as const,
-        error: `Erro ao aceitar convite pendente: ${rpcError.message}`,
+        error: payload?.error ?? "Erro ao aceitar convite pendente.",
       };
     }
 
-    const result = (rpcData as AcceptResult) ?? {
+    const result = payload ?? {
       success: false,
       code: "unknown_error",
       message: "Erro ao processar aceite do convite.",
@@ -69,7 +270,7 @@ export default function LoginPage() {
     if (!result.success) {
       return {
         success: false as const,
-        error: result.message ?? "Nao foi possivel aceitar o convite pendente.",
+        error: payload?.error ?? result.message ?? "Nao foi possivel aceitar o convite pendente.",
       };
     }
 
@@ -130,7 +331,29 @@ export default function LoginPage() {
         }
 
         if (user.email) {
-          const aceitePendente = await aceitarConvitePendenteAposLogin(user.id, user.email);
+          const aceitePlataforma = await finalizarConvitePlataformaAposLogin(user);
+          if (!aceitePlataforma.success) {
+            setErro(aceitePlataforma.error);
+            return;
+          }
+        }
+
+        const {
+          data: { user: refreshedUserAfterPlatform },
+        } = await supabase.auth.getUser();
+
+        const userAtual = refreshedUserAfterPlatform ?? user;
+
+        if (userAtual.email) {
+          const aceiteFinanceiro = await finalizarConviteFinanceiroAposLogin(userAtual);
+          if (!aceiteFinanceiro.success) {
+            setErro(aceiteFinanceiro.error);
+            return;
+          }
+        }
+
+        if (userAtual.email) {
+          const aceitePendente = await aceitarConvitePendenteAposLogin(userAtual.id, userAtual.email);
           if (!aceitePendente.success) {
             setErro(aceitePendente.error);
             return;
@@ -140,7 +363,7 @@ export default function LoginPage() {
         const { data: profileData, error: profileError } = await supabase
           .from("profiles")
           .select("nome")
-          .eq("id", user.id)
+          .eq("id", userAtual.id)
           .single();
 
         if (profileError) {

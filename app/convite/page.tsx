@@ -1,5 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import {
+  ensureDashboardPermissionForUser,
+  isDashboardInviteType,
+} from "@/lib/invitations/dashboard-permission";
 import { hashInviteToken } from "@/lib/invitations/token";
 import { createClient } from "@/lib/supabase/server";
 
@@ -11,7 +15,7 @@ type AcceptResult = {
   success?: boolean;
   code?: string;
   message?: string;
-  invite_type?: "admin" | "gestor" | "auxiliar";
+  invite_type?: "admin" | "gestor_admin" | "gestor" | "auxiliar";
 };
 
 function getTokenFromSearchParam(value: string | string[] | undefined) {
@@ -72,6 +76,21 @@ export default async function ConvitePage({
   }
 
   if (result.success) {
+    if (isDashboardInviteType(result.invite_type)) {
+      try {
+        await ensureDashboardPermissionForUser({ userId: user.id });
+      } catch (error) {
+        return (
+          <section className="mx-auto mt-10 max-w-xl rounded-2xl border border-red-200 card-white-modern p-6">
+            <h1 className="text-xl font-bold text-black">Erro ao liberar Dashboard</h1>
+            <p className="mt-2 text-sm text-gray-600">
+              {error instanceof Error ? error.message : "Erro ao sincronizar acesso da Dashboard."}
+            </p>
+          </section>
+        );
+      }
+    }
+
     const { data: profileData, error: profileError } = await supabase
       .from("profiles")
       .select("nome")

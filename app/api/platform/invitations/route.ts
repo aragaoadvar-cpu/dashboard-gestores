@@ -1,16 +1,19 @@
 import { generateInviteToken } from "@/lib/invitations/token";
 import { sendPlatformInviteEmail } from "@/lib/platform/email";
 import { getApiAccessContext } from "@/lib/platform-access/api";
-import { isManageableModuleKey, type ManageableModuleKey } from "@/lib/platform-access/modules";
+import { type ManageableModuleKey } from "@/lib/platform-access/modules";
 
-type ModuleKey = ManageableModuleKey;
+type InviteModuleKey = Exclude<ManageableModuleKey, "dashboard_ads">;
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
-function isModuleKey(value: unknown): value is ModuleKey {
-  return isManageableModuleKey(value);
+function isInviteModuleKey(value: unknown): value is InviteModuleKey {
+  return (
+    value === "aliado_financeiro_pessoal" ||
+    value === "aliado_financeiro_empresarial"
+  );
 }
 
 export async function GET() {
@@ -27,8 +30,9 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("platform_user_invitations")
-    .select("id, email, nome, modules, status, created_at, accepted_at")
+    .select("id, email, nome, token, modules, status, created_at, accepted_at")
     .eq("invited_by", userId)
+    .eq("status", "pending")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -62,7 +66,7 @@ export async function POST(request: Request) {
 
   const nome = body.nome?.trim() ?? "";
   const email = normalizeEmail(body.email ?? "");
-  const modules = (body.modules ?? []).filter(isModuleKey);
+  const modules = (body.modules ?? []).filter(isInviteModuleKey);
 
   if (!nome || !email) {
     return Response.json(
@@ -102,9 +106,7 @@ export async function POST(request: Request) {
     toEmail: email,
     inviteLink,
     modules: modules.map((moduleKey) =>
-      moduleKey === "dashboard_ads"
-        ? "Dashboard"
-        : moduleKey === "aliado_financeiro_pessoal"
+      moduleKey === "aliado_financeiro_pessoal"
         ? "Aliado Financeiro Pessoal"
         : "Aliado Financeiro Empresarial"
     ),
@@ -115,5 +117,82 @@ export async function POST(request: Request) {
     message: "Convite da plataforma criado com sucesso.",
     invite_link: inviteLink,
     email_delivery: emailDelivery,
+  });
+}
+
+export async function PATCH(request: Request) {
+  const context = await getApiAccessContext();
+  if (!context.ok) {
+    return Response.json({ success: false, error: context.error }, { status: context.status });
+  }
+
+  const { canManagePlatformUsers, userId, supabase } = context;
+
+  if (!canManagePlatformUsers) {
+    return Response.json({ success: false, error: "Acesso não permitido." }, { status: 403 });
+  }
+
+  let body: { invitation_id?: string; action?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ success: false, error: "Body inválido." }, { status: 400 });
+  }
+
+  const invitationId = body.invitation_id?.trim() ?? "";
+  const action = body.action?.trim() ?? "";
+
+  if (!invitationId || action !== "revoke") {
+    return Response.json(
+      { success: false, error: "invitation_id e action=revoke são obrigatórios." },
+      { status: 400 }
+    );
+  }
+
+  const { data: invite, error: inviteError } = await supabase
+    .from("platform_user_invitations")
+    .select("id, status")
+    .eq("id", invitationId)
+    .eq("invited_by", userId)
+    .maybeSingle();
+
+  if (inviteError) {
+    return Response.json(
+      { success: false, error: `Erro ao localizar convite: ${inviteError.message}` },
+      { status: 500 }
+    );
+  }
+
+  if (!invite) {
+    return Response.json(
+      { success: false, error: "Convite fora do seu escopo de gestão." },
+      { status: 403 }
+    );
+  }
+
+  if (invite.status !== "pending") {
+    return Response.json(
+      { success: false, error: "Só é possível cancelar convites pendentes." },
+      { status: 400 }
+    );
+  }
+
+  const { error } = await supabase
+    .from("platform_user_invitations")
+    .update({ status: "revoked" })
+    .eq("id", invitationId)
+    .eq("invited_by", userId)
+    .eq("status", "pending");
+
+  if (error) {
+    return Response.json(
+      { success: false, error: `Erro ao cancelar convite: ${error.message}` },
+      { status: 500 }
+    );
+  }
+
+  return Response.json({
+    success: true,
+    message: "Convite cancelado com sucesso.",
   });
 }

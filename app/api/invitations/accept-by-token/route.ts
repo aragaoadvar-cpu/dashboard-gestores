@@ -1,11 +1,15 @@
 import { createClient } from "@/lib/supabase/server";
 import { hashInviteToken } from "@/lib/invitations/token";
+import {
+  ensureDashboardPermissionForUser,
+  isDashboardInviteType,
+} from "@/lib/invitations/dashboard-permission";
 
 type AcceptResult = {
   success?: boolean;
   code?: string;
   message?: string;
-  invite_type?: "admin" | "gestor" | "auxiliar";
+  invite_type?: "admin" | "gestor_admin" | "gestor" | "auxiliar";
 };
 
 export async function POST(request: Request) {
@@ -89,6 +93,23 @@ export async function POST(request: Request) {
       { success: false, code: result.code, error: result.message ?? "Convite inválido." },
       { status: 400 }
     );
+  }
+
+  if (isDashboardInviteType(result.invite_type)) {
+    try {
+      await ensureDashboardPermissionForUser({ userId: user.id });
+    } catch (error) {
+      return Response.json(
+        {
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Erro ao sincronizar acesso da Dashboard.",
+        },
+        { status: 500 }
+      );
+    }
   }
 
   return Response.json(

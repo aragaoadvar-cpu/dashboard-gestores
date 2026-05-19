@@ -8,10 +8,13 @@ import {
   buildHrefComPeriodo,
   getMesAnoFromSearchParams,
 } from "../../../lib/periodo";
+import {
+  isOperationalAdminRole,
+  parseRole,
+  type RoleUsuario,
+} from "@/lib/platform-access/roles";
 import MonthYearPicker from "../../components/MonthYearPicker";
 import ResponsiveMetricValue from "../../components/ResponsiveMetricValue";
-
-type RoleUsuario = "dono" | "admin" | "gestor";
 
 type Operacao = {
   id: number;
@@ -283,9 +286,7 @@ export default function GestorDetalhePageClient({
     const roleAtual: RoleUsuario =
       perfilData.role === "dono"
         ? "dono"
-        : perfilData.role === "admin"
-        ? "admin"
-        : "gestor";
+        : parseRole(perfilData.role) ?? "gestor";
 
     setRoleUsuario(roleAtual);
     setNomeUsuarioAtual((perfilData.nome ?? "").trim());
@@ -325,7 +326,7 @@ export default function GestorDetalhePageClient({
       setLancamentos([]);
     }
 
-    if (roleAtual === "admin") {
+    if (isOperationalAdminRole(roleAtual)) {
       await carregarTaxasAdmin();
     }
 
@@ -459,7 +460,7 @@ export default function GestorDetalhePageClient({
   }, [operacoes]);
 
   async function salvarTaxasAdministrativas() {
-    if (roleUsuario !== "admin") return;
+    if (!isOperationalAdminRole(roleUsuario)) return;
 
     setErro("");
     setMensagem("");
@@ -661,7 +662,7 @@ export default function GestorDetalhePageClient({
             <span className="font-semibold">0</span> para zerar na sua visão administrativa.
           </p>
 
-          {roleUsuario === "admin" ? (
+          {isOperationalAdminRole(roleUsuario) ? (
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
               <label className="rounded-xl bg-gray-50 p-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.1em] text-gray-500">
@@ -760,7 +761,7 @@ export default function GestorDetalhePageClient({
             </div>
           )}
 
-          {roleUsuario === "admin" && (
+          {isOperationalAdminRole(roleUsuario) && (
             <section className="mt-5">
               <p className="mb-2 text-sm font-semibold uppercase tracking-[0.12em] text-gray-500">
                 Sua visão ({nomeAdminAtualComCargo})
@@ -805,7 +806,7 @@ export default function GestorDetalhePageClient({
           )}
 
           <div className="mt-4 flex flex-wrap gap-2">
-            {roleUsuario === "admin" && (
+            {isOperationalAdminRole(roleUsuario) && (
               <button
                 type="button"
                 onClick={salvarTaxasAdministrativas}

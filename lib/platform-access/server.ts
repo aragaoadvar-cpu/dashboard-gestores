@@ -1,13 +1,17 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
+  hasAcceptedDashboardInvitationRecord,
+  hasPlatformInvitationRecord,
+  resolveDashboardAccess,
+} from "./dashboard-access";
+import {
   hasAnyOwnAliadoScope,
   resolveModulePermissions,
   type ModulePermissionsView,
   type StoredModuleKey,
 } from "./modules";
-
-export type RoleUsuario = "dono" | "admin" | "gestor" | "auxiliar" | null;
+import { parseRole, type RoleUsuario } from "./roles";
 
 export type PlatformAccessContext = {
   supabase: Awaited<ReturnType<typeof createClient>>;
@@ -30,13 +34,6 @@ export type PlatformAccessContext = {
 type AccessOptions = {
   allowInactive?: boolean;
 };
-
-function parseRole(value: string | null | undefined): RoleUsuario {
-  if (value === "dono" || value === "admin" || value === "gestor" || value === "auxiliar") {
-    return value;
-  }
-  return null;
-}
 
 function isMissingRelationErrorMessage(message: string | undefined) {
   return (message ?? "").toLowerCase().includes("user_module_permissions");
@@ -77,6 +74,7 @@ export async function getPlatformAccessContext(
 
   let permissions: Array<{ module_key: StoredModuleKey; enabled: boolean }> = [];
   let hasModuleRows = false;
+  let hasDashboardModuleRow = false;
 
   const { data: permissionsData, error: permissionsError } = await supabase
     .from("user_module_permissions")
@@ -86,6 +84,7 @@ export async function getPlatformAccessContext(
   if (!permissionsError && permissionsData) {
     permissions = permissionsData as Array<{ module_key: StoredModuleKey; enabled: boolean }>;
     hasModuleRows = permissions.length > 0;
+    hasDashboardModuleRow = permissions.some((item) => item.module_key === "dashboard_ads");
   } else if (
     permissionsError &&
     !isMissingRelationErrorMessage(permissionsError.message)
@@ -94,6 +93,14 @@ export async function getPlatformAccessContext(
   }
 
   const modules = resolveModulePermissions(permissions);
+  const hasPlatformInviteRecord = await hasPlatformInvitationRecord(
+    supabase,
+    user.email?.trim().toLowerCase() ?? ""
+  );
+  const hasAcceptedDashboardInviteRecord = await hasAcceptedDashboardInvitationRecord(
+    supabase,
+    user.id
+  );
 
   let hasSharedAliadoAccess = false;
   const { count: sharedCount, error: sharedError } = await supabase
@@ -108,7 +115,14 @@ export async function getPlatformAccessContext(
 
   const roleUsuario = parseRole(profileData.role);
   const canManagePlatformUsers = roleUsuario === "admin" || roleUsuario === "dono";
-  const canAccessDashboard = hasModuleRows ? modules.dashboard_ads : true;
+  const canAccessDashboard = resolveDashboardAccess({
+    hasModuleRows,
+    hasDashboardModuleRow,
+    modules,
+    hasPlatformInviteRecord,
+    hasAcceptedDashboardInvitationRecord: hasAcceptedDashboardInviteRecord,
+    hasSharedAliadoAccess,
+  });
   const hasOwnAliadoPessoalModule = modules.aliado_financeiro_pessoal;
   const hasOwnAliadoEmpresarialModule = modules.aliado_financeiro_empresarial;
   const hasOwnAliadoModule = hasAnyOwnAliadoScope(modules);

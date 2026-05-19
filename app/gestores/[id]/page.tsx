@@ -6,6 +6,7 @@ import { getOwnerGestorDetail } from "@/lib/dashboard/getOwnerGestorDetail";
 import { buildHrefComPeriodo } from "@/lib/periodo";
 import ResponsiveMetricValue from "@/app/components/ResponsiveMetricValue";
 import { requireDashboardModuleAccess } from "@/lib/platform-access/server";
+import { isOperationalAdminRole } from "@/lib/platform-access/roles";
 
 type PageProps = {
   params: Promise<{
@@ -300,7 +301,7 @@ export default async function Page({ params, searchParams }: PageProps) {
     redirect("/gestores");
   }
 
-  if (roleUsuario === "admin") {
+  if (isOperationalAdminRole(roleUsuario)) {
     const { data: vinculoData, error: vinculoError } = await supabase
       .from("admin_gestores")
       .select("id")

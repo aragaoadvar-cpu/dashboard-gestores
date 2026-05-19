@@ -13,13 +13,15 @@ export default async function Page() {
   } =
     await getPlatformAccessContext();
 
+  const nomeDestaque = nomeAtual.trim().toLocaleUpperCase("pt-BR");
+
   const modulos = [
     canAccessDashboard
       ? {
-          titulo: "Dashboard",
+          titulo: "Adsync3",
           descricao: "Acompanhe operações, ROI, gestores, despesas e comissões.",
           href: "/",
-          acao: "Abrir Dashboard",
+          acao: "Abrir Adsync3",
           destaque:
             "border-cyan-300/25 shadow-cyan-500/10 [background-image:radial-gradient(circle_at_top_left,rgba(34,211,238,0.14),transparent_34%)]",
         }
@@ -73,17 +75,17 @@ export default async function Page() {
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.16),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(99,102,241,0.14),transparent_30%)]" />
 
           <div className="relative z-10">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300/80">
+            <p className="bg-gradient-to-r from-cyan-300 to-indigo-400 bg-clip-text text-xs font-semibold uppercase tracking-[0.18em] text-transparent">
               Plataforma
             </p>
-            <h1 className="mt-3 text-3xl font-extrabold text-white md:text-5xl">
-              Bem-vindo ao ADSYNC3
+            <h1 className="mt-3 max-w-5xl text-xl font-extrabold uppercase leading-tight text-white md:text-3xl md:leading-[1.1]">
+              {`OLÁ, ${nomeDestaque || "USUARIO"}! SEJA BEM-VINDO AO `}
+              <span className="bg-gradient-to-r from-cyan-300 to-indigo-400 bg-clip-text text-transparent drop-shadow-[0_0_18px_rgba(34,211,238,0.35)]">
+                ALIADO
+              </span>
             </h1>
-            <p className="mt-3 max-w-2xl text-sm text-slate-300 md:text-base">
-              Escolha um módulo para começar.
-            </p>
-            <p className="mt-4 inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200">
-              Olá, {nomeAtual}
+            <p className="mt-4 max-w-3xl text-sm font-medium leading-6 text-slate-200 md:text-lg md:leading-8">
+              Grandes resultados começam com decisões inteligentes.
             </p>
           </div>
         </header>

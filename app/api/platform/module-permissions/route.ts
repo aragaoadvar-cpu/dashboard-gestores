@@ -5,6 +5,7 @@ import {
   type ModuleKey,
 } from "@/lib/platform-access/manageable-users";
 import { isManageableModuleKey } from "@/lib/platform-access/modules";
+import { syncEffectiveProfileActiveState } from "@/lib/platform-access/profile-activity";
 import { getPlatformServiceSupabaseClient } from "@/lib/platform-access/service";
 
 function isModuleKey(value: unknown): value is ModuleKey {
@@ -64,6 +65,17 @@ export async function PATCH(request: Request) {
     );
   }
 
+  if (moduleKey === "dashboard_ads") {
+    return Response.json(
+      {
+        success: false,
+        error:
+          "O acesso à Dashboard ADS é gerenciado pelo fluxo /convites da Dashboard, não por /add-usuario.",
+      },
+      { status: 400 }
+    );
+  }
+
   try {
     const target = await findManageableUser({
       viewerUserId: context.userId,
@@ -112,7 +124,9 @@ export async function PATCH(request: Request) {
       );
     }
 
-    return Response.json({ success: true });
+    const isActive = await syncEffectiveProfileActiveState(serviceSupabase, targetUserId);
+
+    return Response.json({ success: true, is_active: isActive });
   } catch (error) {
     return Response.json(
       {

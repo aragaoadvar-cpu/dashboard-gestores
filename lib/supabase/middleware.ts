@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { parseRole } from "@/lib/platform-access/roles";
 
 export async function updateSession(request: NextRequest) {
   const response = NextResponse.next({
@@ -36,6 +37,15 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon");
 
+  const rotaSemValidacaoOperacionalDashboard =
+    pathname.startsWith("/inicio") ||
+    pathname.startsWith("/configuracao") ||
+    pathname.startsWith("/completar-cadastro") ||
+    pathname.startsWith("/conta-desativada") ||
+    pathname.startsWith("/aliado-financeiro") ||
+    pathname.startsWith("/api/platform/") ||
+    pathname.startsWith("/api/aliado-financeiro/");
+
   if (!user || rotaPublica) {
     return response;
   }
@@ -46,20 +56,11 @@ export async function updateSession(request: NextRequest) {
     .eq("id", user.id)
     .maybeSingle();
 
-  const roleUsuario =
-    profileData?.role === "dono"
-      ? "dono"
-      : profileData?.role === "admin"
-      ? "admin"
-      : profileData?.role === "auxiliar"
-      ? "auxiliar"
-      : profileData?.role === "gestor"
-      ? "gestor"
-      : null;
+  const roleUsuario = parseRole(profileData?.role);
 
   if (roleUsuario === "gestor") {
     const rotaApiAceiteConvite = pathname.startsWith("/api/invitations/accept-by-token");
-    if (rotaApiAceiteConvite) {
+    if (rotaApiAceiteConvite || rotaSemValidacaoOperacionalDashboard) {
       return response;
     }
 
@@ -87,7 +88,7 @@ export async function updateSession(request: NextRequest) {
 
   if (roleUsuario === "auxiliar") {
     const rotaApiAceiteConvite = pathname.startsWith("/api/invitations/accept-by-token");
-    if (rotaApiAceiteConvite) {
+    if (rotaApiAceiteConvite || rotaSemValidacaoOperacionalDashboard) {
       return response;
     }
 

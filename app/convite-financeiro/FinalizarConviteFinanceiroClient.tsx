@@ -10,6 +10,10 @@ type Props = {
 };
 
 type Etapa = "idle" | "criando" | "aceitando" | "finalizando";
+type AuthResult =
+  | { success: true; needsEmailConfirmation: false }
+  | { success: true; needsEmailConfirmation: true }
+  | { success: false; error: string };
 
 function normalizarEmail(email: string) {
   return email.trim().toLowerCase();
@@ -26,27 +30,43 @@ export default function FinalizarConviteFinanceiroClient({ token }: Props) {
   const [erro, setErro] = useState("");
   const [mensagem, setMensagem] = useState("");
 
-  async function autenticarOuCriarConta(emailNormalizado: string, senhaLimpa: string) {
+  async function autenticarOuCriarConta(
+    emailNormalizado: string,
+    senhaLimpa: string
+  ): Promise<AuthResult> {
     const login = await supabase.auth.signInWithPassword({
       email: emailNormalizado,
       password: senhaLimpa,
     });
 
     if (!login.error) {
-      return { success: true as const };
+      return { success: true, needsEmailConfirmation: false };
     }
 
     const cadastro = await supabase.auth.signUp({
       email: emailNormalizado,
       password: senhaLimpa,
+      options: {
+        emailRedirectTo: `${window.location.origin}/login?email=${encodeURIComponent(
+          emailNormalizado
+        )}`,
+        data: {
+          financeiro_invite_token: token,
+          financeiro_invite_nome: nome.trim(),
+        },
+      },
     });
 
     if (cadastro.error) {
-      return { success: false as const, error: cadastro.error.message };
+      return { success: false, error: cadastro.error.message };
     }
 
     if (cadastro.data.session) {
-      return { success: true as const };
+      return { success: true, needsEmailConfirmation: false };
+    }
+
+    if (cadastro.data.user) {
+      return { success: true, needsEmailConfirmation: true };
     }
 
     const relogin = await supabase.auth.signInWithPassword({
@@ -56,13 +76,13 @@ export default function FinalizarConviteFinanceiroClient({ token }: Props) {
 
     if (relogin.error) {
       return {
-        success: false as const,
+        success: false,
         error:
           "Conta criada, mas não foi possível autenticar automaticamente. Confirme o email e faça login para concluir o convite.",
       };
     }
 
-    return { success: true as const };
+    return { success: true, needsEmailConfirmation: false };
   }
 
   async function finalizarCadastro() {
@@ -95,6 +115,14 @@ export default function FinalizarConviteFinanceiroClient({ token }: Props) {
     if (!authResult.success) {
       setEtapa("idle");
       setErro(authResult.error);
+      return;
+    }
+
+    if (authResult.needsEmailConfirmation) {
+      setEtapa("idle");
+      setMensagem(
+        "Conta criada. Confirme o email e depois faça login para concluir automaticamente o compartilhamento."
+      );
       return;
     }
 

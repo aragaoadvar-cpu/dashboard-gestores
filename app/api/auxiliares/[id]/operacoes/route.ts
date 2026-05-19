@@ -1,17 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
-
-type RoleUsuario = "dono" | "admin" | "gestor" | "auxiliar";
+import { isOperationalAdminRole, parseRole, type RoleUsuario } from "@/lib/platform-access/roles";
 
 type OperacaoPermissaoPayload = {
   operacao_ids_permitidas?: number[];
 };
-
-function parseRole(role: string | null | undefined): RoleUsuario {
-  if (role === "dono") return "dono";
-  if (role === "admin") return "admin";
-  if (role === "gestor") return "gestor";
-  return "auxiliar";
-}
 
 async function carregarEscopoAuxiliar(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -78,7 +70,7 @@ export async function GET(
   }
 
   const roleUsuario = parseRole(actorProfile.role);
-  if (roleUsuario !== "dono" && roleUsuario !== "admin" && roleUsuario !== "gestor") {
+  if (!roleUsuario || (!isOperationalAdminRole(roleUsuario) && roleUsuario !== "dono" && roleUsuario !== "gestor")) {
     return Response.json({ success: false, error: "Acesso não permitido." }, { status: 403 });
   }
 
@@ -87,7 +79,7 @@ export async function GET(
     return Response.json({ success: false, error: vinculoMsg }, { status: 404 });
   }
 
-  if ((roleUsuario === "admin" || roleUsuario === "gestor") && vinculo.owner_user_id !== user.id) {
+  if ((isOperationalAdminRole(roleUsuario) || roleUsuario === "gestor") && vinculo.owner_user_id !== user.id) {
     return Response.json(
       { success: false, error: "Você só pode gerenciar auxiliares vinculados ao seu escopo." },
       { status: 403 }
@@ -177,7 +169,7 @@ export async function PATCH(
   }
 
   const roleUsuario = parseRole(actorProfile.role);
-  if (roleUsuario !== "dono" && roleUsuario !== "admin" && roleUsuario !== "gestor") {
+  if (!roleUsuario || (!isOperationalAdminRole(roleUsuario) && roleUsuario !== "dono" && roleUsuario !== "gestor")) {
     return Response.json({ success: false, error: "Acesso não permitido." }, { status: 403 });
   }
 
@@ -205,7 +197,7 @@ export async function PATCH(
     return Response.json({ success: false, error: vinculoMsg }, { status: 404 });
   }
 
-  if ((roleUsuario === "admin" || roleUsuario === "gestor") && vinculo.owner_user_id !== user.id) {
+  if ((isOperationalAdminRole(roleUsuario) || roleUsuario === "gestor") && vinculo.owner_user_id !== user.id) {
     return Response.json(
       { success: false, error: "Você só pode gerenciar auxiliares vinculados ao seu escopo." },
       { status: 403 }

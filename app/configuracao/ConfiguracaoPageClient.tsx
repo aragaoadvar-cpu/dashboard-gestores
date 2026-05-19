@@ -3,8 +3,7 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-
-type RoleUsuario = "dono" | "admin" | "gestor" | "auxiliar";
+import type { RoleUsuario } from "@/lib/platform-access/roles";
 
 type Props = {
   nomeInicial: string;
@@ -15,6 +14,7 @@ type Props = {
 function getRoleLabel(role: RoleUsuario) {
   if (role === "dono") return "Dono";
   if (role === "admin") return "Admin";
+  if (role === "gestor_admin") return "Gestor Admin";
   if (role === "auxiliar") return "Auxiliar";
   return "Gestor";
 }

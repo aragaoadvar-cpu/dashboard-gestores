@@ -1,5 +1,9 @@
 import { getApiAccessContext } from "@/lib/platform-access/api";
 import { findManageableUser } from "@/lib/platform-access/manageable-users";
+import {
+  getPlatformModuleKeys,
+  syncEffectiveProfileActiveState,
+} from "@/lib/platform-access/profile-activity";
 import { getPlatformServiceSupabaseClient } from "@/lib/platform-access/service";
 
 type RouteParams = Promise<{
@@ -85,19 +89,56 @@ export async function PATCH(
       );
     }
 
-    const { error } = await serviceSupabase
-      .from("profiles")
-      .update({ is_active: body.is_active })
-      .eq("id", targetUserId);
+    const platformModuleKeys = getPlatformModuleKeys();
+    const { data: currentPlatformModules, error: currentPlatformModulesError } = await serviceSupabase
+      .from("user_module_permissions")
+      .select("module_key")
+      .eq("user_id", targetUserId)
+      .in("module_key", platformModuleKeys);
 
-    if (error) {
+    if (currentPlatformModulesError) {
       return Response.json(
-        { success: false, error: `Erro ao atualizar status: ${error.message}` },
+        {
+          success: false,
+          error: `Erro ao carregar módulos da plataforma: ${currentPlatformModulesError.message}`,
+        },
         { status: 500 }
       );
     }
 
-    return Response.json({ success: true });
+    const currentModuleKeys = Array.from(
+      new Set((currentPlatformModules ?? []).map((item) => item.module_key))
+    );
+
+    if (currentModuleKeys.length === 0) {
+      return Response.json(
+        { success: false, error: "Usuário não possui módulos da plataforma para atualizar." },
+        { status: 400 }
+      );
+    }
+
+    const { error } = await serviceSupabase.from("user_module_permissions").upsert(
+      currentModuleKeys.map((moduleKey) => ({
+        user_id: targetUserId,
+        module_key: moduleKey,
+        enabled: body.is_active,
+        granted_by: context.userId,
+      })),
+      {
+        onConflict: "user_id,module_key",
+      }
+    );
+
+    if (error) {
+      return Response.json(
+        { success: false, error: `Erro ao atualizar módulos da plataforma: ${error.message}` },
+        { status: 500 }
+      );
+    }
+
+    const isActive = await syncEffectiveProfileActiveState(serviceSupabase, targetUserId);
+
+    return Response.json({ success: true, is_active: isActive });
   } catch (error) {
     return Response.json(
       {

@@ -4,6 +4,11 @@ import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  isOperationalAdminRole,
+  parseRole,
+  type RoleUsuario,
+} from "@/lib/platform-access/roles";
+import {
   calcularBaseComissaoAuxiliarConvidador,
   calcularTotalComissoesAuxiliares,
   type AuxiliarComissaoAtiva,
@@ -82,7 +87,7 @@ type PerfilUsuario = {
   id: string;
   nome: string | null;
   email: string | null;
-  role: "dono" | "admin" | "gestor" | "auxiliar" | null;
+  role: RoleUsuario;
 };
 
 type AdminGestorTaxas = {
@@ -193,7 +198,7 @@ export default function HomePageClient() {
   const [erro, setErro] = useState("");
   const [mensagem, setMensagem] = useState("");
   const [emailUsuario, setEmailUsuario] = useState("");
-  const [roleUsuario, setRoleUsuario] = useState<"dono" | "admin" | "gestor" | "auxiliar">("gestor");
+  const [roleUsuario, setRoleUsuario] = useState<RoleUsuario>("gestor");
   const [userIdAtual, setUserIdAtual] = useState("");
   const [ownerIdAuxiliar, setOwnerIdAuxiliar] = useState<string | null>(null);
   const [gestoresVinculadosIds, setGestoresVinculadosIds] = useState<string[]>([]);
@@ -496,14 +501,7 @@ export default function HomePageClient() {
       return;
     }
 
-    const roleAtual =
-      profileData.role === "dono"
-        ? "dono"
-        : profileData.role === "admin"
-        ? "admin"
-        : profileData.role === "auxiliar"
-        ? "auxiliar"
-        : "gestor";
+    const roleAtual = parseRole(profileData.role) ?? "gestor";
 
     setRoleUsuario(roleAtual);
     if (roleAtual !== "auxiliar") {
@@ -514,7 +512,7 @@ export default function HomePageClient() {
     let adminsDoSistema: string[] = [];
     let ownerDoAuxiliar: string | null = null;
     let operacaoIdsPermitidasAuxiliar: number[] = [];
-    if (roleAtual === "admin") {
+    if (isOperationalAdminRole(roleAtual)) {
       const { data: gestoresData, error: gestoresError } = await supabase
         .from("admin_gestores")
         .select("gestor_user_id")
@@ -614,7 +612,7 @@ export default function HomePageClient() {
       setTaxasAdminPorGestorId({});
     }
 
-    if (roleAtual === "admin" || roleAtual === "gestor") {
+    if (isOperationalAdminRole(roleAtual) || roleAtual === "gestor") {
       const { data: comissoesData, error: comissoesError } = await supabase
         .from("auxiliar_comissoes")
         .select("id, auxiliar_user_id, percentual_comissao, percentual_desconto")
@@ -715,7 +713,7 @@ export default function HomePageClient() {
 
       if (roleAtual === "gestor") {
         operacoesQuery = operacoesQuery.eq("user_id", user.id);
-      } else if (roleAtual === "admin") {
+      } else if (isOperationalAdminRole(roleAtual)) {
         operacoesQuery = operacoesQuery.in("user_id", [user.id, ...gestoresDoAdmin]);
       }
 
@@ -762,7 +760,7 @@ export default function HomePageClient() {
 
     if (roleAtual === "gestor") {
       despesasQuery = despesasQuery.eq("user_id", user.id);
-    } else if (roleAtual === "admin") {
+    } else if (isOperationalAdminRole(roleAtual)) {
       despesasQuery = despesasQuery.in("user_id", [user.id, ...gestoresDoAdmin]);
     } else if (roleAtual === "auxiliar" && ownerDoAuxiliar) {
       despesasQuery = despesasQuery.eq("user_id", ownerDoAuxiliar);
@@ -780,7 +778,7 @@ export default function HomePageClient() {
     setDespesas(despesasLista);
 
     const idsParaRanking =
-      roleAtual === "admin"
+      isOperationalAdminRole(roleAtual)
         ? [user.id, ...gestoresDoAdmin]
         : roleAtual === "dono"
         ? adminsDoSistema
@@ -874,13 +872,7 @@ export default function HomePageClient() {
           role:
             perfil.role === "dono"
               ? "dono"
-              : perfil.role === "admin"
-              ? "admin"
-              : perfil.role === "auxiliar"
-              ? "auxiliar"
-              : perfil.role === "gestor"
-              ? "gestor"
-              : null,
+              : parseRole(perfil.role),
         };
       }
       setPerfisUsuarioPorId(perfisMap);
@@ -923,7 +915,7 @@ export default function HomePageClient() {
 
       const ownerId = operacao.user_id ?? "";
       const deveAplicarOverride =
-        roleUsuario === "admin" && ownerId !== "" && ownerId !== userIdAtual;
+        isOperationalAdminRole(roleUsuario) && ownerId !== "" && ownerId !== userIdAtual;
       const override = deveAplicarOverride ? taxasAdminPorGestorId[ownerId] ?? null : null;
       const operacaoParaCalculo = aplicarOverrideAdminNaOperacaoDashboard(operacao, override);
       const repassePercentual = getRepassePercentualDashboardComOverride(operacao, override);
@@ -952,7 +944,7 @@ export default function HomePageClient() {
       let repasseTotal = 0;
       let repasseLiquidoBase = 0;
 
-      const resumosParaTotais = roleUsuario === "admin" ? resumoPorOperacaoAdmin : resumoPorOperacaoReal;
+      const resumosParaTotais = isOperationalAdminRole(roleUsuario) ? resumoPorOperacaoAdmin : resumoPorOperacaoReal;
 
       for (const operacao of operacoesEscopo) {
         const resumo = resumosParaTotais.get(operacao.id);
@@ -999,14 +991,14 @@ export default function HomePageClient() {
     );
 
     const operacoesEquipe =
-      roleUsuario === "admin"
+      isOperationalAdminRole(roleUsuario)
         ? operacoes.filter((operacao) => operacao.user_id && gestoresSet.has(operacao.user_id))
         : roleUsuario === "dono"
         ? operacoes.filter((operacao) => operacao.user_id !== userIdAtual)
         : [];
 
     const despesasEquipe =
-      roleUsuario === "admin"
+      isOperationalAdminRole(roleUsuario)
         ? despesasAplicadasTemporal.filter(
             (despesa) => despesa.user_id && gestoresSet.has(despesa.user_id)
           )
@@ -1036,7 +1028,7 @@ export default function HomePageClient() {
       const nome = perfil?.nome?.trim() || "";
       const email = perfil?.email?.trim() || "";
 
-      if (roleUsuario === "admin" && userId === userIdAtual) {
+      if (isOperationalAdminRole(roleUsuario) && userId === userIdAtual) {
         if (nome) return `${nome} (Você)`;
         if (email) return `${email} (Você)`;
         if (emailUsuario.trim()) return `${emailUsuario.trim()} (Você)`;
@@ -1048,7 +1040,7 @@ export default function HomePageClient() {
     }
 
     const alvoIds =
-      roleUsuario === "admin"
+      isOperationalAdminRole(roleUsuario)
         ? [userIdAtual, ...gestoresVinculadosIds]
         : roleUsuario === "dono"
         ? adminIdsSistema
@@ -1133,7 +1125,7 @@ export default function HomePageClient() {
   ]);
 
   const alertasPerformanceHome = useMemo(() => {
-    if (roleUsuario !== "admin" && roleUsuario !== "dono") return [];
+    if (!isOperationalAdminRole(roleUsuario) && roleUsuario !== "dono") return [];
     if (ranking.length === 0) return [];
 
     const temDados = ranking.some(
@@ -1173,10 +1165,10 @@ export default function HomePageClient() {
   const resumoProprio = totaisPorEscopo.proprio;
   const resumoEquipe = totaisPorEscopo.equipe;
   const resumoConsolidado = totaisPorEscopo.consolidado;
-  const resumoPorOperacao = roleUsuario === "admin" ? resumoPorOperacaoAdmin : resumoPorOperacaoReal;
+  const resumoPorOperacao = isOperationalAdminRole(roleUsuario) ? resumoPorOperacaoAdmin : resumoPorOperacaoReal;
   const deveDescontarComissoesAuxiliaresNoResumo = modoTemporal === "periodo";
   const baseComissaoAuxiliarConvidador = useMemo(() => {
-    if ((roleUsuario !== "admin" && roleUsuario !== "gestor") || !userIdAtual) {
+    if ((!isOperationalAdminRole(roleUsuario) && roleUsuario !== "gestor") || !userIdAtual) {
       return 0;
     }
 
@@ -1188,7 +1180,7 @@ export default function HomePageClient() {
     );
   }, [roleUsuario, userIdAtual, operacoes, lancamentos, despesas]);
   const totalComissoesAuxiliaresResumo = useMemo(() => {
-    if (roleUsuario !== "admin" && roleUsuario !== "gestor") {
+    if (!isOperationalAdminRole(roleUsuario) && roleUsuario !== "gestor") {
       return {
         totalComissoesAuxiliares: 0,
         comissoesPorAuxiliar: [],
@@ -1378,7 +1370,7 @@ export default function HomePageClient() {
         <section className="mt-0.5 border-0 bg-transparent p-0 shadow-none md:mt-4">
           <div
             className={
-              roleUsuario === "admin" || roleUsuario === "gestor" || roleUsuario === "auxiliar"
+              isOperationalAdminRole(roleUsuario) || roleUsuario === "gestor" || roleUsuario === "auxiliar"
                 ? "grid grid-cols-1 gap-0.5 md:grid-cols-[1fr_auto] md:items-center"
                 : "flex flex-col gap-1 md:gap-3"
             }
@@ -1605,7 +1597,7 @@ export default function HomePageClient() {
 
         </section>
 
-        {roleUsuario === "admin" && (
+        {isOperationalAdminRole(roleUsuario) && (
           <>
             {renderKpiGrid(resumoProprio, "OPERAÇÕES PRÓPRIAS", {
               esconderRepasseLiquido: true,
@@ -1764,7 +1756,7 @@ export default function HomePageClient() {
           </>
         )}
 
-        {(roleUsuario === "admin" || roleUsuario === "dono") && alertasPerformanceHome.length > 0 && (
+        {(isOperationalAdminRole(roleUsuario) || roleUsuario === "dono") && alertasPerformanceHome.length > 0 && (
           <section className="mt-4 rounded-[24px] border border-white/10 bg-[#0f172a]/70 p-3 shadow-[0_20px_45px_rgba(2,6,23,0.45)] md:mt-6 md:p-5">
             <p className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
               Alertas rápidos
@@ -1793,7 +1785,7 @@ export default function HomePageClient() {
           </section>
         )}
 
-        {(roleUsuario === "admin" || roleUsuario === "dono") && (
+        {(isOperationalAdminRole(roleUsuario) || roleUsuario === "dono") && (
           <section className="mt-3 rounded-[18px] card-white-modern p-2.5 shadow-sm md:mt-6 md:rounded-[24px] md:p-6">
             <button
               type="button"
@@ -1802,7 +1794,7 @@ export default function HomePageClient() {
             >
               <div className="min-w-0">
                 <h2 className="text-[13px] font-extrabold text-black md:text-2xl">
-                  {roleUsuario === "admin" ? "RANKING GERAL" : "Ranking de admins"}
+                  {isOperationalAdminRole(roleUsuario) ? "RANKING GERAL" : "Ranking de admins"}
                 </h2>
                 <span className="block text-[8px] font-semibold uppercase tracking-[0.06em] text-gray-400 md:text-xs md:tracking-[0.12em]">
                   Ordenado por repasse bruto

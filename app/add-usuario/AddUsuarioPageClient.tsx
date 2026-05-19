@@ -17,6 +17,7 @@ type InviteItem = {
   id: string;
   email: string;
   nome: string | null;
+  token: string;
   modules: string[];
   status: string;
   created_at: string;
@@ -27,9 +28,10 @@ type PlatformUserItem = {
   user_id: string;
   nome: string | null;
   email: string | null;
-  role: "dono" | "admin" | "gestor" | "auxiliar" | null;
+  role: "dono" | "admin" | "gestor_admin" | "gestor" | "auxiliar" | null;
   is_active: boolean;
   modules: ManagedModules;
+  has_aliado_module_history: boolean;
 };
 
 type UnifiedItem =
@@ -44,6 +46,7 @@ type UnifiedItem =
       createdAtLabel: string | null;
       modules: ManagedModules;
       is_active: boolean;
+      has_aliado_module_history: boolean;
     }
   | {
       kind: "invite";
@@ -56,6 +59,7 @@ type UnifiedItem =
       createdAtLabel: string | null;
       modules: ManagedModules;
       inviteStatus: string;
+      inviteLink: string;
     };
 
 type Props = {
@@ -65,7 +69,6 @@ type Props = {
 export default function AddUsuarioPageClient({ nomeUsuario }: Props) {
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
-  const [dashboard, setDashboard] = useState(true);
   const [aliadoPessoal, setAliadoPessoal] = useState(false);
   const [aliadoEmpresarial, setAliadoEmpresarial] = useState(false);
   const [lista, setLista] = useState<InviteItem[]>([]);
@@ -74,9 +77,51 @@ export default function AddUsuarioPageClient({ nomeUsuario }: Props) {
   const [salvando, setSalvando] = useState(false);
   const [atualizandoModulo, setAtualizandoModulo] = useState<string | null>(null);
   const [atualizandoStatusConta, setAtualizandoStatusConta] = useState<string | null>(null);
+  const [cancelandoConvite, setCancelandoConvite] = useState<string | null>(null);
   const [erro, setErro] = useState("");
   const [mensagem, setMensagem] = useState("");
   const [busca, setBusca] = useState("");
+
+  async function copiarLinkConvite(inviteLink: string) {
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setMensagem("Link do convite copiado com sucesso.");
+      setErro("");
+    } catch {
+      setErro("Não foi possível copiar o link do convite.");
+    }
+  }
+
+  async function cancelarConvite(invitationId: string) {
+    setCancelandoConvite(invitationId);
+    setErro("");
+    setMensagem("");
+
+    const response = await fetch("/api/platform/invitations", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        invitation_id: invitationId,
+        action: "revoke",
+      }),
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | { success?: boolean; error?: string; message?: string }
+      | null;
+
+    setCancelandoConvite(null);
+
+    if (!response.ok || !payload?.success) {
+      setErro(payload?.error ?? "Não foi possível cancelar o convite.");
+      return;
+    }
+
+    setMensagem(payload.message ?? "Convite cancelado com sucesso.");
+    setLista((prev) => prev.filter((item) => item.id !== invitationId));
+  }
 
   async function carregar() {
     setCarregando(true);
@@ -122,7 +167,6 @@ export default function AddUsuarioPageClient({ nomeUsuario }: Props) {
     setMensagem("");
 
     const modules = [
-      dashboard ? "dashboard_ads" : null,
       aliadoPessoal ? "aliado_financeiro_pessoal" : null,
       aliadoEmpresarial ? "aliado_financeiro_empresarial" : null,
     ].filter(Boolean);
@@ -164,7 +208,6 @@ export default function AddUsuarioPageClient({ nomeUsuario }: Props) {
     setMensagem(payload.message ?? "Convite criado com sucesso.");
     setNome("");
     setEmail("");
-    setDashboard(true);
     setAliadoPessoal(false);
     setAliadoEmpresarial(false);
     void carregar();
@@ -204,19 +247,7 @@ export default function AddUsuarioPageClient({ nomeUsuario }: Props) {
     }
 
     setMensagem("Permissão atualizada com sucesso.");
-    setUsuarios((prev) =>
-      prev.map((item) =>
-        item.user_id === targetUserId
-          ? {
-              ...item,
-              modules: {
-                ...item.modules,
-                [moduleKey]: enabled,
-              },
-            }
-          : item
-      )
-    );
+    await carregar();
   }
 
   async function atualizarStatusConta(targetUserId: string, isActive: boolean) {
@@ -245,17 +276,12 @@ export default function AddUsuarioPageClient({ nomeUsuario }: Props) {
       return;
     }
 
-    setMensagem(isActive ? "Conta ativada com sucesso." : "Conta desativada com sucesso.");
-    setUsuarios((prev) =>
-      prev.map((item) =>
-        item.user_id === targetUserId
-          ? {
-              ...item,
-              is_active: isActive,
-            }
-          : item
-      )
+    setMensagem(
+      isActive
+        ? "Módulos do ALIADO reativados com sucesso."
+        : "Módulos do ALIADO inativados com sucesso."
     );
+    await carregar();
   }
 
   const itensUnificados: UnifiedItem[] = [
@@ -270,16 +296,15 @@ export default function AddUsuarioPageClient({ nomeUsuario }: Props) {
       createdAtLabel: null,
       modules: usuario.modules,
       is_active: usuario.is_active,
+      has_aliado_module_history: usuario.has_aliado_module_history,
     })),
     ...lista
+      .filter((invite) => invite.status === "pending")
       .filter((invite) => {
-        if (invite.status === "accepted") {
-          const inviteEmail = invite.email.trim().toLowerCase();
-          return !usuarios.some(
-            (usuario) => (usuario.email ?? "").trim().toLowerCase() === inviteEmail
-          );
-        }
-        return true;
+        const inviteEmail = invite.email.trim().toLowerCase();
+        return !usuarios.some(
+          (usuario) => (usuario.email ?? "").trim().toLowerCase() === inviteEmail
+        );
       })
       .map((invite) => ({
         kind: "invite" as const,
@@ -287,13 +312,8 @@ export default function AddUsuarioPageClient({ nomeUsuario }: Props) {
         nome: invite.nome,
         email: invite.email,
         role: null,
-        statusLabel:
-          invite.status === "pending"
-            ? "Convite pendente"
-            : invite.status === "accepted"
-            ? "Convite aceito"
-            : "Convite desativado",
-        statusTone: invite.status === "pending" ? ("pending" as const) : ("inactive" as const),
+        statusLabel: "Convite pendente",
+        statusTone: "pending" as const,
         createdAtLabel: new Date(invite.created_at).toLocaleDateString("pt-BR"),
         modules: {
           dashboard_ads: invite.modules.includes("dashboard_ads"),
@@ -305,6 +325,10 @@ export default function AddUsuarioPageClient({ nomeUsuario }: Props) {
             invite.modules.includes("aliado_financeiro_empresarial"),
         },
         inviteStatus: invite.status,
+        inviteLink:
+          typeof window === "undefined"
+            ? `/convite-plataforma?token=${encodeURIComponent(invite.token)}`
+            : `${window.location.origin}/convite-plataforma?token=${encodeURIComponent(invite.token)}`,
       })),
   ];
 
@@ -326,6 +350,7 @@ export default function AddUsuarioPageClient({ nomeUsuario }: Props) {
   function getRoleLabel(role: PlatformUserItem["role"]) {
     if (role === "dono") return "dono";
     if (role === "admin") return "admin";
+    if (role === "gestor_admin") return "gestor_admin";
     if (role === "auxiliar") return "auxiliar";
     if (role === "gestor") return "gestor";
     return "sem role";
@@ -399,14 +424,6 @@ export default function AddUsuarioPageClient({ nomeUsuario }: Props) {
                   <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
                     <input
                       type="checkbox"
-                      checked={dashboard}
-                      onChange={(e) => setDashboard(e.target.checked)}
-                    />
-                    Dashboard
-                  </label>
-                  <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
-                    <input
-                      type="checkbox"
                       checked={aliadoPessoal}
                       onChange={(e) => setAliadoPessoal(e.target.checked)}
                     />
@@ -421,6 +438,10 @@ export default function AddUsuarioPageClient({ nomeUsuario }: Props) {
                     Aliado Financeiro: Empresarial
                   </label>
                 </div>
+                <p className="mt-3 text-xs leading-5 text-slate-400">
+                  Para liberar acesso à Dashboard ADS, use o menu
+                  <strong className="text-slate-200"> /convites</strong> dentro da Dashboard.
+                </p>
               </div>
 
               {!!mensagem && (
@@ -533,12 +554,27 @@ export default function AddUsuarioPageClient({ nomeUsuario }: Props) {
                   </div>
 
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:min-w-[520px]">
+                    <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={item.modules.dashboard_ads}
+                          disabled
+                          readOnly
+                        />
+                        <span>{getModuleLabel("dashboard_ads")}</span>
+                      </div>
+                      <p className="mt-2 text-[11px] leading-4 text-slate-400">
+                        Gerenciado em Convites. A liberação real da Dashboard é feita em
+                        <strong className="text-slate-300"> /convites</strong>.
+                      </p>
+                    </div>
+
                     {(
                       [
-                        "dashboard_ads",
                         "aliado_financeiro_pessoal",
                         "aliado_financeiro_empresarial",
-                      ] as ManagedModuleKey[]
+                      ] as Exclude<ManagedModuleKey, "dashboard_ads">[]
                     ).map((moduleKey) => (
                       <label
                         key={moduleKey}
@@ -565,21 +601,64 @@ export default function AddUsuarioPageClient({ nomeUsuario }: Props) {
 
                 {item.kind === "user" && (
                   <div className="mt-4 flex flex-wrap gap-2">
+                    {(() => {
+                      const possuiModuloPlataformaAtivo =
+                        item.modules.aliado_financeiro_pessoal ||
+                        item.modules.aliado_financeiro_empresarial;
+                      const podeAlternarModulosAliado = item.has_aliado_module_history;
+
+                      if (!podeAlternarModulosAliado) {
+                        return null;
+                      }
+
+                      return (
                     <button
                       type="button"
-                      onClick={() => void atualizarStatusConta(item.id, !item.is_active)}
+                      onClick={() =>
+                        void atualizarStatusConta(item.id, !possuiModuloPlataformaAtivo)
+                      }
                       disabled={atualizandoStatusConta === item.id}
                       className={`inline-flex items-center justify-center rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                        item.is_active
+                        possuiModuloPlataformaAtivo
                           ? "border border-rose-300/25 bg-rose-500/10 text-rose-100 hover:bg-rose-500/20"
                           : "border border-emerald-300/25 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/20"
                       } disabled:opacity-60`}
                     >
                       {atualizandoStatusConta === item.id
                         ? "Atualizando..."
-                        : item.is_active
-                        ? "Desativar"
-                        : "Ativar"}
+                        : possuiModuloPlataformaAtivo
+                        ? "Inativar modulos do ALIADO"
+                        : "Reativar modulos do ALIADO"}
+                    </button>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {item.kind === "invite" && item.inviteStatus === "pending" && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void copiarLinkConvite(item.inviteLink)}
+                      className="inline-flex items-center justify-center rounded-xl border border-cyan-300/25 bg-cyan-500/10 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-500/20"
+                    >
+                      Copiar link
+                    </button>
+                    <a
+                      href={item.inviteLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-100 transition hover:bg-white/10"
+                    >
+                      Abrir link
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => void cancelarConvite(item.id)}
+                      disabled={cancelandoConvite === item.id}
+                      className="inline-flex items-center justify-center rounded-xl border border-rose-300/25 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-100 transition hover:bg-rose-500/20 disabled:opacity-60"
+                    >
+                      {cancelandoConvite === item.id ? "Cancelando..." : "Cancelar convite"}
                     </button>
                   </div>
                 )}

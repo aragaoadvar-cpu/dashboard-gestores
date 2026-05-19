@@ -8,7 +8,13 @@ import {
 } from "./modules";
 
 export type ModuleKey = ManageableModuleKey;
-export type ManagedRole = "dono" | "admin" | "gestor" | "auxiliar" | null;
+export type ManagedRole =
+  | "dono"
+  | "admin"
+  | "gestor_admin"
+  | "gestor"
+  | "auxiliar"
+  | null;
 
 export type ManagedUserRow = {
   user_id: string;
@@ -17,14 +23,17 @@ export type ManagedUserRow = {
   role: ManagedRole;
   is_active: boolean;
   modules: ModulePermissionsView;
+  has_aliado_module_history: boolean;
 };
 
-function normalizeEmail(email: string | null | undefined) {
-  return (email ?? "").trim().toLowerCase();
-}
-
 function parseRole(value: string | null | undefined): ManagedRole {
-  if (value === "dono" || value === "admin" || value === "gestor" || value === "auxiliar") {
+  if (
+    value === "dono" ||
+    value === "admin" ||
+    value === "gestor_admin" ||
+    value === "gestor" ||
+    value === "auxiliar"
+  ) {
     return value;
   }
   return null;
@@ -95,8 +104,6 @@ export async function listManageableUsers({
   }
 
   const manageableUserIds = new Set<string>();
-  const invitedEmails = new Set<string>();
-
   if (viewerRole === "dono") {
     const { data: allProfiles, error: allProfilesError } = await serviceSupabase
       .from("profiles")
@@ -138,23 +145,64 @@ export async function listManageableUsers({
       manageableUserIds.add(item.auxiliar_user_id);
     }
 
+    const { data: grantedModulesData, error: grantedModulesError } = await serviceSupabase
+      .from("user_module_permissions")
+      .select("user_id")
+      .eq("granted_by", viewerUserId)
+      .eq("enabled", true);
+
+    if (grantedModulesError) {
+      throw new Error(
+        `Erro ao listar usuarios com modulos concedidos pelo admin: ${grantedModulesError.message}`
+      );
+    }
+
+    for (const item of grantedModulesData ?? []) {
+      manageableUserIds.add(item.user_id);
+    }
+
+    const { data: acceptedDashboardGestorAdmins, error: acceptedDashboardGestorAdminsError } =
+      await serviceSupabase
+        .from("user_invitations")
+        .select("accepted_by_user_id")
+        .eq("invited_by_user_id", viewerUserId)
+        .eq("invite_type", "gestor_admin")
+        .eq("status", "accepted")
+        .not("accepted_by_user_id", "is", null);
+
+    if (acceptedDashboardGestorAdminsError) {
+      throw new Error(
+        `Erro ao listar gestores admin convidados pela Dashboard: ${acceptedDashboardGestorAdminsError.message}`
+      );
+    }
+
+    for (const invite of acceptedDashboardGestorAdmins ?? []) {
+      if (invite.accepted_by_user_id) {
+        manageableUserIds.add(invite.accepted_by_user_id);
+      }
+    }
+
     const { data: platformInvites, error: platformInvitesError } = await serviceSupabase
       .from("platform_user_invitations")
-      .select("email")
-      .eq("invited_by", viewerUserId);
+      .select("accepted_by_user_id")
+      .eq("invited_by", viewerUserId)
+      .eq("status", "accepted");
 
     if (platformInvitesError) {
       throw new Error(`Erro ao listar convites da plataforma: ${platformInvitesError.message}`);
     }
 
     for (const invite of platformInvites ?? []) {
-      invitedEmails.add(normalizeEmail(invite.email));
+      if (invite.accepted_by_user_id) {
+        manageableUserIds.add(invite.accepted_by_user_id);
+      }
     }
 
     const { data: financeShares, error: financeSharesError } = await serviceSupabase
       .from("financeiro_shared_access")
-      .select("shared_user_id, invited_email, invited_by")
-      .in("invited_by", ownerIds);
+      .select("shared_user_id")
+      .in("owner_user_id", ownerIds)
+      .eq("status", "accepted");
 
     if (financeSharesError) {
       throw new Error(`Erro ao listar compartilhamentos financeiros: ${financeSharesError.message}`);
@@ -163,22 +211,6 @@ export async function listManageableUsers({
     for (const share of financeShares ?? []) {
       if (share.shared_user_id) {
         manageableUserIds.add(share.shared_user_id);
-      }
-      invitedEmails.add(normalizeEmail(share.invited_email));
-    }
-
-    if (invitedEmails.size > 0) {
-      const withEmail = await serviceSupabase
-        .from("profiles")
-        .select("id, email");
-
-      if (!withEmail.error) {
-        for (const profile of withEmail.data ?? []) {
-          const normalized = normalizeEmail(profile.email);
-          if (normalized && invitedEmails.has(normalized)) {
-            manageableUserIds.add(profile.id);
-          }
-        }
       }
     }
   } else {
@@ -199,6 +231,9 @@ export async function listManageableUsers({
   }
 
   const permissionsByUser = new Map<string, ModulePermissionsView>();
+  const dashboardEnabledUserIds = new Set<string>();
+  const dashboardPermissionUserIds = new Set<string>();
+  const aliadoModuleHistoryUserIds = new Set<string>();
 
   for (const userId of finalUserIds) {
     permissionsByUser.set(userId, {
@@ -215,6 +250,23 @@ export async function listManageableUsers({
 
   for (const item of permissionsData ?? []) {
     if (!isStoredModuleKey(item.module_key)) continue;
+
+    if (item.module_key === "dashboard_ads" && Boolean(item.enabled)) {
+      dashboardEnabledUserIds.add(item.user_id);
+    }
+
+    if (item.module_key === "dashboard_ads") {
+      dashboardPermissionUserIds.add(item.user_id);
+    }
+
+    if (
+      item.module_key === "aliado_financeiro" ||
+      item.module_key === "aliado_financeiro_pessoal" ||
+      item.module_key === "aliado_financeiro_empresarial"
+    ) {
+      aliadoModuleHistoryUserIds.add(item.user_id);
+    }
+
     const current = groupedPermissions.get(item.user_id) ?? [];
     current.push({
       module_key: item.module_key,
@@ -225,6 +277,29 @@ export async function listManageableUsers({
 
   for (const [userId, items] of groupedPermissions) {
     permissionsByUser.set(userId, resolveModulePermissions(items));
+  }
+
+  const acceptedDashboardInviteUserIds = new Set<string>();
+  if (finalUserIds.length > 0) {
+    const { data: dashboardInvitesData, error: dashboardInvitesError } = await serviceSupabase
+      .from("user_invitations")
+      .select("accepted_by_user_id")
+      .in("accepted_by_user_id", finalUserIds)
+      .in("invite_type", ["admin", "gestor_admin", "gestor", "auxiliar"])
+      .eq("status", "accepted")
+      .not("accepted_by_user_id", "is", null);
+
+    if (dashboardInvitesError) {
+      throw new Error(
+        `Erro ao carregar convites aceitos da Dashboard: ${dashboardInvitesError.message}`
+      );
+    }
+
+    for (const invite of dashboardInvitesData ?? []) {
+      if (invite.accepted_by_user_id) {
+        acceptedDashboardInviteUserIds.add(invite.accepted_by_user_id);
+      }
+    }
   }
 
   return finalUserIds
@@ -238,12 +313,19 @@ export async function listManageableUsers({
         email: profile.email ?? null,
         role: parseRole(profile.role),
         is_active: profile.is_active !== false,
-        modules:
-          permissionsByUser.get(userId) ?? {
+        modules: {
+          ...(permissionsByUser.get(userId) ?? {
             dashboard_ads: false,
             aliado_financeiro_pessoal: false,
             aliado_financeiro_empresarial: false,
-          },
+          }),
+          dashboard_ads:
+            (permissionsByUser.get(userId)?.dashboard_ads ?? false) ||
+            dashboardEnabledUserIds.has(userId) ||
+            (!dashboardPermissionUserIds.has(userId) &&
+              acceptedDashboardInviteUserIds.has(userId)),
+        },
+        has_aliado_module_history: aliadoModuleHistoryUserIds.has(userId),
       };
     })
     .filter((item): item is ManagedUserRow => Boolean(item))

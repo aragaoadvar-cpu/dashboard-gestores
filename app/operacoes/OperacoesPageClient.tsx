@@ -7,12 +7,15 @@ import { createClient } from "../../lib/supabase/client";
 import MonthYearPicker from "../components/MonthYearPicker";
 import ResponsiveMetricValue from "../components/ResponsiveMetricValue";
 import {
+  isOperationalAdminRole,
+  parseRole,
+  type RoleUsuario,
+} from "@/lib/platform-access/roles";
+import {
   calcularResumoOperacao,
   type ResumoOperacaoFinanceiro,
 } from "../../lib/financeiro/calcularResumoOperacao";
 import { buildHrefComPeriodo, getMesAnoFromSearchParams, getPeriodoQueryFromSearchParams } from "../../lib/periodo";
-
-type RoleUsuario = "dono" | "admin" | "gestor" | "auxiliar";
 type RoleOwnerAuxiliar = "dono" | "admin" | "gestor" | null;
 
 type Operacao = {
@@ -151,7 +154,7 @@ export default function OperacoesPageClient() {
   }, [mesSelecionado]);
 
   const labelPerfilAtual = useMemo(() => {
-    if (roleUsuario === "admin") {
+    if (isOperationalAdminRole(roleUsuario)) {
       const nome = nomeUsuarioAtual.trim();
       return nome ? `${nome} - Admin` : "Admin";
     }
@@ -267,14 +270,7 @@ export default function OperacoesPageClient() {
       return;
     }
 
-    const roleAtual: RoleUsuario =
-      profileData.role === "dono"
-        ? "dono"
-        : profileData.role === "admin"
-        ? "admin"
-        : profileData.role === "auxiliar"
-        ? "auxiliar"
-        : "gestor";
+    const roleAtual = parseRole(profileData.role) ?? "gestor";
 
     setRoleUsuario(roleAtual);
     setNomeUsuarioAtual((profileData.nome ?? "").trim());
@@ -284,7 +280,7 @@ export default function OperacoesPageClient() {
     let ownerRoleDoAuxiliar: RoleOwnerAuxiliar = null;
     let operacaoIdsPermitidasAuxiliar: number[] = [];
 
-    if (roleAtual === "admin") {
+    if (isOperationalAdminRole(roleAtual)) {
       const { data: gestoresData, error: gestoresError } = await supabase
         .from("admin_gestores")
         .select("gestor_user_id")
@@ -396,7 +392,7 @@ export default function OperacoesPageClient() {
 
       if (roleAtual === "gestor") {
         operacoesQuery = operacoesQuery.eq("user_id", user.id);
-      } else if (roleAtual === "admin") {
+      } else if (isOperationalAdminRole(roleAtual)) {
         operacoesQuery = operacoesQuery.in("user_id", [user.id, ...gestoresDoAdmin]);
       }
 
@@ -615,7 +611,7 @@ export default function OperacoesPageClient() {
     }
 
     const repassePadrao =
-      roleUsuario === "admin" ||
+      isOperationalAdminRole(roleUsuario) ||
       roleUsuario === "dono" ||
       (roleUsuario === "auxiliar" &&
         (ownerRoleAuxiliar === "admin" || ownerRoleAuxiliar === "dono"))
@@ -760,7 +756,7 @@ export default function OperacoesPageClient() {
               className="shrink-0"
             />
 
-            {(roleUsuario === "admin" || roleUsuario === "dono") && (
+            {(isOperationalAdminRole(roleUsuario) || roleUsuario === "dono") && (
               <select
                 value={filtroDonoOperacaoId}
                 onChange={(e) => setFiltroDonoOperacaoId(e.target.value)}
@@ -839,7 +835,7 @@ export default function OperacoesPageClient() {
             <div className="hidden md:block" />
           </div>
 
-          {(roleUsuario === "admin" || roleUsuario === "dono") && (
+          {(isOperationalAdminRole(roleUsuario) || roleUsuario === "dono") && (
             <div className="mt-1 hidden items-center gap-1.5 md:mt-4 md:block">
               <label className="text-[10px] leading-none font-medium text-slate-300 md:mb-2 md:block md:text-sm">
                 <span className="hidden md:inline">Filtrar por gestor/dono da operação</span>

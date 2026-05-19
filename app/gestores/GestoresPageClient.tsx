@@ -9,12 +9,15 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { buildHrefComPeriodo, getMesAnoFromSearchParams } from "../../lib/periodo";
+import {
+  isOperationalAdminRole,
+  parseRole,
+  type RoleUsuario,
+} from "@/lib/platform-access/roles";
 import ResponsiveMetricValue from "../components/ResponsiveMetricValue";
 import { createClient } from "../../lib/supabase/client";
 import MonthYearPicker from "../components/MonthYearPicker";
 import UserAvatar from "../components/UserAvatar";
-
-type RoleUsuario = "dono" | "admin" | "gestor";
 
 type GestorPerfil = {
   id: string;
@@ -195,7 +198,7 @@ export default function GestoresPageClient() {
       });
     }
 
-    if (roleUsuario === "admin" && resumoAdminProprio) {
+    if (isOperationalAdminRole(roleUsuario) && resumoAdminProprio) {
       itens.push({
         tipo: "admin",
         id: "__admin__",
@@ -330,9 +333,7 @@ export default function GestoresPageClient() {
     const roleAtual: RoleUsuario =
       profileData.role === "dono"
         ? "dono"
-        : profileData.role === "admin"
-        ? "admin"
-        : "gestor";
+        : parseRole(profileData.role) ?? "gestor";
 
     setRoleUsuario(roleAtual);
     setNomeUsuarioAtual((profileData.nome ?? "").trim());
@@ -349,7 +350,7 @@ export default function GestoresPageClient() {
     const taxasAdminPorGestorId: Record<string, AdminGestorTaxas> = {};
     const comissoesAuxiliaresPorConvidadorId = new Map<string, AuxiliarComissaoAtiva[]>();
 
-    if (roleAtual === "admin") {
+    if (isOperationalAdminRole(roleAtual)) {
       const { data: vinculosData, error: vinculosError } = await supabase
         .from("admin_gestores")
         .select("gestor_user_id")
@@ -474,7 +475,7 @@ export default function GestoresPageClient() {
       gestorIds = ((gestoresData as Array<{ id: string }>) || []).map((item) => item.id);
     }
 
-    if (roleAtual === "admin") {
+    if (isOperationalAdminRole(roleAtual)) {
       const { data: operacoesPropriasData, error: operacoesPropriasError } = await supabase
         .from("operacoes")
         .select("id, user_id, cotacao_dolar, taxa_facebook, taxa_network, taxa_imposto, repasse_percentual")
@@ -759,7 +760,7 @@ export default function GestoresPageClient() {
         operacao.repasse_percentual ?? PERCENTUAL_REPASSE_PADRAO
       );
 
-      const override = roleAtual === "admin" ? taxasAdminPorGestorId[operacao.user_id] : null;
+      const override = isOperationalAdminRole(roleAtual) ? taxasAdminPorGestorId[operacao.user_id] : null;
       const cotacaoDolarAdmin = getComFallback(
         override?.cotacao_dolar_admin,
         cotacaoDolarReal,
@@ -915,7 +916,7 @@ export default function GestoresPageClient() {
             </div>
           )}
 
-          {!carregando && !erro && roleUsuario === "admin" && (
+          {!carregando && !erro && isOperationalAdminRole(roleUsuario) && (
             <section className="mb-6 rounded-3xl border border-slate-200 card-white-modern p-5 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-xl font-extrabold text-slate-900">Contabilidade</h2>
@@ -981,13 +982,13 @@ export default function GestoresPageClient() {
             </section>
           )}
 
-          {!carregando && !erro && gestores.length === 0 && roleUsuario !== "admin" && (
+          {!carregando && !erro && gestores.length === 0 && !isOperationalAdminRole(roleUsuario) && (
             <div className="rounded-2xl border border-dashed border-white/20 bg-[#0b1222]/70 px-4 py-6 text-sm text-slate-300">
               Nenhum gestor encontrado.
             </div>
           )}
 
-          {!carregando && !erro && (gestores.length > 0 || (roleUsuario === "admin" && !!resumoAdminProprio)) && (
+          {!carregando && !erro && (gestores.length > 0 || (isOperationalAdminRole(roleUsuario) && !!resumoAdminProprio)) && (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {rankingCardsOrdenados.map((item, index) => {
                 if (item.tipo === "gestor") {

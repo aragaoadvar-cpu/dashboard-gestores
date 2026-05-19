@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import MonthYearPicker from "@/app/components/MonthYearPicker";
 import { createClient } from "@/lib/supabase/client";
+import type { FinanceiroSharedHubItem } from "@/lib/aliado-financeiro/server";
 import { garantirCategoriasFinanceirasPadrao } from "@/lib/aliado-financeiro/defaults";
 import type { FinanceiroEscopo } from "@/lib/aliado-financeiro/types";
 import {
@@ -21,12 +22,10 @@ type ScopeSummary = {
 };
 
 type SharedItem = {
-  id: string;
   owner_user_id: string;
   owner_nome: string;
   permission_level: "view" | "edit";
   escopos: FinanceiroEscopo[];
-  resumos: Partial<Record<FinanceiroEscopo, ScopeSummary>>;
 };
 
 type Props = {
@@ -35,12 +34,20 @@ type Props = {
   hasOwnAliadoModule: boolean;
   hasOwnAliadoPessoalModule: boolean;
   hasOwnAliadoEmpresarialModule: boolean;
+  initialSharedItems: FinanceiroSharedHubItem[];
 };
 
 const escopos: FinanceiroEscopo[] = ["pessoal", "empresarial"];
+const RETRY_DELAY_MS = 700;
 
 function resumoVazio(): ScopeSummary {
   return { receitas: 0, despesas: 0, saldo: 0 };
+}
+
+function esperar(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 export default function AliadoFinanceiroHomeClient({
@@ -49,6 +56,7 @@ export default function AliadoFinanceiroHomeClient({
   hasOwnAliadoModule,
   hasOwnAliadoPessoalModule,
   hasOwnAliadoEmpresarialModule,
+  initialSharedItems,
 }: Props) {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
@@ -83,7 +91,7 @@ export default function AliadoFinanceiroHomeClient({
     setCarregando(true);
     setErro("");
 
-    try {
+    const carregarDados = async () => {
       const { inicio, fim } = getPeriodoMes(mesSelecionado, anoSelecionado);
       const inicioIso = inicio.toISOString().slice(0, 10);
       const fimIso = fim.toISOString().slice(0, 10);
@@ -96,27 +104,6 @@ export default function AliadoFinanceiroHomeClient({
           escoposProprios.map((escopo) => garantirCategoriasFinanceirasPadrao(supabase, authUserId, escopo))
         );
       }
-
-      const sharedResp = await supabase
-        .from("financeiro_shared_access")
-        .select("id, owner_user_id, permission_level, escopos")
-        .eq("shared_user_id", authUserId)
-        .eq("status", "accepted")
-        .order("created_at", { ascending: false });
-
-      if (sharedResp.error) throw sharedResp.error;
-
-      const ownerIds = Array.from(new Set((sharedResp.data ?? []).map((item) => item.owner_user_id)));
-      const profilesResp =
-        ownerIds.length > 0
-          ? await supabase.from("profiles").select("id, nome").in("id", ownerIds)
-          : { data: [], error: null };
-
-      if (profilesResp.error) throw profilesResp.error;
-
-      const nomesPorOwner = new Map(
-        (profilesResp.data ?? []).map((item) => [item.id, item.nome?.trim() || "outro usuário"])
-      );
 
       const carregarResumo = async (ownerUserId: string, escopo: FinanceiroEscopo) => {
         const { data, error } = await supabase
@@ -156,30 +143,58 @@ export default function AliadoFinanceiroHomeClient({
         setResumoProprio({});
       }
 
-      const compartilhadosData = await Promise.all(
-        (sharedResp.data ?? []).map(async (item) => {
-          const allowedScopes = ((item.escopos ?? []) as string[]).filter(
-            (scope): scope is FinanceiroEscopo => scope === "pessoal" || scope === "empresarial"
-          );
+      const compartilhadosBrutos: SharedItem[] = initialSharedItems.map((item) => ({
+        owner_user_id: item.owner_user_id,
+        owner_nome: item.owner_nome,
+        permission_level: item.permission_level === "edit" ? "edit" : "view",
+        escopos: item.escopos,
+      }));
 
-          const resumoEntries = await Promise.all(
-            allowedScopes.map(async (escopo) => [escopo, await carregarResumo(item.owner_user_id, escopo)] as const)
-          );
+      const compartilhadosAgrupados = new Map<string, SharedItem>();
 
-          return {
-            id: item.id,
-            owner_user_id: item.owner_user_id,
-            owner_nome: nomesPorOwner.get(item.owner_user_id) ?? "outro usuário",
-            permission_level: item.permission_level === "edit" ? "edit" : "view",
-            escopos: allowedScopes,
-            resumos: Object.fromEntries(resumoEntries),
-          } satisfies SharedItem;
-        })
+      for (const item of compartilhadosBrutos) {
+        const existente = compartilhadosAgrupados.get(item.owner_user_id);
+
+        if (!existente) {
+          compartilhadosAgrupados.set(item.owner_user_id, item);
+          continue;
+        }
+
+        const escoposCombinados = Array.from(
+          new Set([...existente.escopos, ...item.escopos])
+        ).sort((a, b) => escopos.indexOf(a) - escopos.indexOf(b));
+
+        compartilhadosAgrupados.set(item.owner_user_id, {
+          owner_user_id: item.owner_user_id,
+          owner_nome: item.owner_nome,
+          permission_level:
+            existente.permission_level === "edit" || item.permission_level === "edit"
+              ? "edit"
+              : "view",
+          escopos: escoposCombinados,
+        });
+      }
+
+      setCompartilhados(
+        Array.from(compartilhadosAgrupados.values()).sort((a, b) =>
+          a.owner_nome.localeCompare(b.owner_nome, "pt-BR", { sensitivity: "base" })
+        )
       );
+    };
 
-      setCompartilhados(compartilhadosData);
+    try {
+      await carregarDados();
     } catch (error) {
-      setErro(error instanceof Error ? error.message : "Não foi possível carregar o Aliado Financeiro.");
+      try {
+        await esperar(RETRY_DELAY_MS);
+        await carregarDados();
+      } catch (retryError) {
+        setErro(
+          retryError instanceof Error
+            ? retryError.message
+            : "Não foi possível carregar o Aliado Financeiro."
+        );
+      }
     } finally {
       setCarregando(false);
     }
@@ -189,6 +204,7 @@ export default function AliadoFinanceiroHomeClient({
     hasOwnAliadoEmpresarialModule,
     hasOwnAliadoModule,
     hasOwnAliadoPessoalModule,
+    initialSharedItems,
     mesSelecionado,
     supabase,
   ]);
@@ -244,6 +260,12 @@ export default function AliadoFinanceiroHomeClient({
             />
           </div>
         </header>
+
+        {carregando && (
+          <div className="mt-4 rounded-2xl border border-cyan-300/20 bg-cyan-500/8 px-4 py-3 text-sm text-cyan-100">
+            Carregando Aliado Financeiro...
+          </div>
+        )}
 
         {erro && (
           <div className="mt-4 rounded-2xl border border-rose-300/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
@@ -327,7 +349,7 @@ export default function AliadoFinanceiroHomeClient({
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
               Compartilhados comigo
             </p>
-            <h2 className="mt-2 text-xl font-extrabold text-white">Financeiros compartilhados</h2>
+            <h2 className="mt-2 text-xl font-extrabold text-white">Aliados compartilhados comigo</h2>
           </div>
 
           <div className="mt-4 space-y-4">
@@ -343,68 +365,122 @@ export default function AliadoFinanceiroHomeClient({
               </div>
             )}
 
-            {compartilhados.map((item) => (
-              <article
-                key={item.id}
-                className="rounded-[26px] border border-white/10 bg-[#0a1020]/90 p-5 shadow-[0_18px_40px_rgba(2,6,23,0.45)]"
-              >
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <h3 className="text-xl font-extrabold text-white">
-                      Financeiro de {item.owner_nome}
-                    </h3>
-                    <p className="mt-1 text-sm text-slate-400">
-                      {item.permission_level === "edit" ? "Pode editar" : "Apenas visualizar"}
-                    </p>
+            {compartilhados.length > 0 && (
+              <>
+                <div className="hidden overflow-hidden rounded-[26px] border border-white/10 bg-[#0a1020]/90 shadow-[0_18px_40px_rgba(2,6,23,0.45)] lg:block">
+                  <div className="grid grid-cols-[minmax(0,1.7fr)_160px_140px_160px] gap-3 border-b border-white/10 bg-[#0f172a]/80 px-5 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                    <span>Nome</span>
+                    <span>Acesso</span>
+                    <span>Pessoal</span>
+                    <span>Empresarial</span>
                   </div>
-                </div>
 
-                <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  {item.escopos.map((escopo) => {
-                    const resumo = item.resumos[escopo] ?? resumoVazio();
+                  {compartilhados.map((item) => {
+                    const temPessoal = item.escopos.includes("pessoal");
+                    const temEmpresarial = item.escopos.includes("empresarial");
+
                     return (
                       <div
-                        key={`${item.id}-${escopo}`}
-                        className="rounded-[22px] border border-white/10 bg-[#0b1222]/75 p-4"
+                        key={item.owner_user_id}
+                        className="grid grid-cols-[minmax(0,1.7fr)_160px_140px_160px] gap-3 border-b border-white/5 px-5 py-4 last:border-b-0"
                       >
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-sm font-semibold text-slate-100">
-                            {getFinanceiroEscopoLabel(escopo)}
-                          </p>
-                          <Link
-                            href={buildScopeHref(`/aliado-financeiro/${escopo}`, escopo, item.owner_user_id)}
-                            className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/10"
-                          >
-                            Abrir
-                          </Link>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-white">{item.owner_nome}</p>
                         </div>
-
-                        <div className="mt-3 grid grid-cols-3 gap-2">
-                          <div className="rounded-[16px] border border-white/10 bg-[#09101d]/80 p-3">
-                            <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Receitas</p>
-                            <p className="mt-1 text-sm font-bold text-emerald-300">
-                              {formatarMoeda(resumo.receitas)}
-                            </p>
-                          </div>
-                          <div className="rounded-[16px] border border-white/10 bg-[#09101d]/80 p-3">
-                            <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Despesas</p>
-                            <p className="mt-1 text-sm font-bold text-rose-300">
-                              {formatarMoeda(resumo.despesas)}
-                            </p>
-                          </div>
-                          <div className="rounded-[16px] border border-white/10 bg-[#09101d]/80 p-3">
-                            <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Saldo</p>
-                            <p className="mt-1 text-sm font-bold text-cyan-300">
-                              {formatarMoeda(resumo.saldo)}
-                            </p>
-                          </div>
+                        <div>
+                          <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200">
+                            {item.permission_level === "edit" ? "Editor" : "Visualizador"}
+                          </span>
+                        </div>
+                        <div>
+                          {temPessoal ? (
+                            <Link
+                              href={buildScopeHref("/aliado-financeiro/pessoal", "pessoal", item.owner_user_id)}
+                              className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/10"
+                            >
+                              Abrir
+                            </Link>
+                          ) : (
+                            <span className="text-sm text-slate-500">-</span>
+                          )}
+                        </div>
+                        <div>
+                          {temEmpresarial ? (
+                            <Link
+                              href={buildScopeHref(
+                                "/aliado-financeiro/empresarial",
+                                "empresarial",
+                                item.owner_user_id
+                              )}
+                              className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/10"
+                            >
+                              Abrir
+                            </Link>
+                          ) : (
+                            <span className="text-sm text-slate-500">-</span>
+                          )}
                         </div>
                       </div>
                     );
                   })}
                 </div>
-              </article>
-            ))}
+
+                <div className="space-y-3 lg:hidden">
+                  {compartilhados.map((item) => {
+                    const temPessoal = item.escopos.includes("pessoal");
+                    const temEmpresarial = item.escopos.includes("empresarial");
+
+                    return (
+                      <article
+                        key={item.owner_user_id}
+                        className="rounded-[22px] border border-white/10 bg-[#0a1020]/90 p-4 shadow-[0_14px_30px_rgba(2,6,23,0.35)]"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <h3 className="min-w-0 truncate text-base font-bold text-white">
+                            {item.owner_nome}
+                          </h3>
+                          <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-slate-200">
+                            {item.permission_level === "edit" ? "Editor" : "Visualizador"}
+                          </span>
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-2 gap-2">
+                          {temPessoal ? (
+                            <Link
+                              href={buildScopeHref("/aliado-financeiro/pessoal", "pessoal", item.owner_user_id)}
+                              className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/10"
+                            >
+                              Abrir Pessoal
+                            </Link>
+                          ) : (
+                            <div className="inline-flex items-center justify-center rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-500">
+                              -
+                            </div>
+                          )}
+
+                          {temEmpresarial ? (
+                            <Link
+                              href={buildScopeHref(
+                                "/aliado-financeiro/empresarial",
+                                "empresarial",
+                                item.owner_user_id
+                              )}
+                              className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/10"
+                            >
+                              Abrir Empresarial
+                            </Link>
+                          ) : (
+                            <div className="inline-flex items-center justify-center rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-500">
+                              -
+                            </div>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
         </section>
       </section>

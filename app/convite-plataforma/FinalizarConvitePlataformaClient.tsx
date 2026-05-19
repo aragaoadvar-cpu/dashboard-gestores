@@ -4,12 +4,20 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import {
+  clearPendingPlatformInvite,
+  savePendingPlatformInvite,
+} from "@/lib/platform-access/platform-invite-storage";
 
 type Props = {
   token: string;
 };
 
-type Etapa = "idle" | "criando" | "aceitando" | "finalizando";
+type Etapa = "idle" | "criando" | "aceitando";
+type AuthResult =
+  | { success: true; needsEmailConfirmation: false }
+  | { success: true; needsEmailConfirmation: true }
+  | { success: false; error: string };
 
 function normalizarEmail(email: string) {
   return email.trim().toLowerCase();
@@ -26,27 +34,43 @@ export default function FinalizarConvitePlataformaClient({ token }: Props) {
   const [erro, setErro] = useState("");
   const [mensagem, setMensagem] = useState("");
 
-  async function autenticarOuCriarConta(emailNormalizado: string, senhaLimpa: string) {
+  async function autenticarOuCriarConta(
+    emailNormalizado: string,
+    senhaLimpa: string
+  ): Promise<AuthResult> {
     const login = await supabase.auth.signInWithPassword({
       email: emailNormalizado,
       password: senhaLimpa,
     });
 
     if (!login.error) {
-      return { success: true as const };
+      return { success: true, needsEmailConfirmation: false };
     }
 
     const cadastro = await supabase.auth.signUp({
       email: emailNormalizado,
       password: senhaLimpa,
+      options: {
+        emailRedirectTo: `${window.location.origin}/login?email=${encodeURIComponent(
+          emailNormalizado
+        )}`,
+        data: {
+          platform_invite_token: token,
+          platform_invite_nome: nome.trim(),
+        },
+      },
     });
 
     if (cadastro.error) {
-      return { success: false as const, error: cadastro.error.message };
+      return { success: false, error: cadastro.error.message };
     }
 
     if (cadastro.data.session) {
-      return { success: true as const };
+      return { success: true, needsEmailConfirmation: false };
+    }
+
+    if (cadastro.data.user) {
+      return { success: true, needsEmailConfirmation: true };
     }
 
     const relogin = await supabase.auth.signInWithPassword({
@@ -56,13 +80,13 @@ export default function FinalizarConvitePlataformaClient({ token }: Props) {
 
     if (relogin.error) {
       return {
-        success: false as const,
+        success: false,
         error:
           "Conta criada, mas não foi possível autenticar automaticamente. Confirme o email e faça login para concluir o convite.",
       };
     }
 
-    return { success: true as const };
+    return { success: true, needsEmailConfirmation: false };
   }
 
   async function finalizarCadastro() {
@@ -90,11 +114,25 @@ export default function FinalizarConvitePlataformaClient({ token }: Props) {
       return;
     }
 
+    savePendingPlatformInvite({
+      token,
+      email: emailNormalizado,
+      nome: nomeLimpo,
+    });
+
     setEtapa("criando");
     const authResult = await autenticarOuCriarConta(emailNormalizado, senhaLimpa);
     if (!authResult.success) {
       setEtapa("idle");
       setErro(authResult.error);
+      return;
+    }
+
+    if (authResult.needsEmailConfirmation) {
+      setEtapa("idle");
+      setMensagem(
+        "Conta criada. Confirme o email e depois faça login para concluir automaticamente o convite da plataforma."
+      );
       return;
     }
 
@@ -104,7 +142,7 @@ export default function FinalizarConvitePlataformaClient({ token }: Props) {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ token, nome: nomeLimpo }),
     });
 
     const acceptPayload = (await acceptResponse.json().catch(() => null)) as
@@ -117,21 +155,9 @@ export default function FinalizarConvitePlataformaClient({ token }: Props) {
       return;
     }
 
-    setEtapa("finalizando");
-    const { error: nomeError } = await supabase.rpc("update_my_profile_name", {
-      p_nome: nomeLimpo,
-    });
-
-    if (nomeError) {
-      setEtapa("idle");
-      setErro(
-        `Convite aceito, mas não foi possível salvar seu nome: ${nomeError.message}`
-      );
-      return;
-    }
-
+    clearPendingPlatformInvite();
     setMensagem("Cadastro concluído com sucesso. Entrando na plataforma...");
-    router.push("/inicio");
+    router.replace("/inicio");
     router.refresh();
   }
 
@@ -205,7 +231,6 @@ export default function FinalizarConvitePlataformaClient({ token }: Props) {
             {etapa === "idle" && "Finalizar cadastro"}
             {etapa === "criando" && "Criando/entrando na conta..."}
             {etapa === "aceitando" && "Aceitando convite..."}
-            {etapa === "finalizando" && "Finalizando perfil..."}
           </button>
 
           <Link href="/login" className="block text-center text-sm font-semibold text-fuchsia-300 underline">

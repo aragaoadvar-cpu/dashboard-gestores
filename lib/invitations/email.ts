@@ -1,4 +1,4 @@
-type InviteType = "admin" | "gestor" | "auxiliar";
+type InviteType = "admin" | "gestor_admin" | "gestor" | "auxiliar";
 
 export type InviteEmailDelivery = {
   status: "sent" | "not_configured" | "failed";
@@ -32,6 +32,8 @@ export async function sendInviteEmail({
   const subject =
     inviteType === "admin"
       ? "Convite para entrar como Admin"
+      : inviteType === "gestor_admin"
+      ? "Convite para entrar como Gestor Admin"
       : inviteType === "gestor"
       ? "Convite para entrar como Gestor"
       : "Convite para entrar como Auxiliar";
